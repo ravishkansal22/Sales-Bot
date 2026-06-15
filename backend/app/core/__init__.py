@@ -1,0 +1,1 @@
+# Ghost Negotiator Core Package

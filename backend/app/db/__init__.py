@@ -1,0 +1,1 @@
+# Ghost Negotiator Database Package
