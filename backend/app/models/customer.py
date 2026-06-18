@@ -11,12 +11,13 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from app.models.conversation import Conversation
+    from app.models.order import Order
 
 from app.db.base import Base
 
@@ -41,6 +42,34 @@ class Customer(Base):
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+    )
+    external_customer_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+    customer_segment: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    total_spend: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    average_order_value: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    total_orders: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+    last_purchase_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
@@ -69,6 +98,11 @@ class Customer(Base):
         lazy="selectin",
     )
     conversations: Mapped[list[Conversation]] = relationship(
+        back_populates="customer",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    orders: Mapped[list[Order]] = relationship(
         back_populates="customer",
         cascade="all, delete-orphan",
         lazy="selectin",

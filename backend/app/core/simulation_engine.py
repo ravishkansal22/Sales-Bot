@@ -30,7 +30,6 @@ from app.core.strategies.base import Strategy
 from app.core.strategies.registry import StrategyRegistry
 from app.schemas.chat import ConversationAnalysis
 from app.schemas.simulation import (
-    CustomerReaction,
     DigitalTwinProfile,
     LLMStrategyOutput,
     SimulationOutput,
@@ -106,6 +105,8 @@ class SimulationEngine:
         analysis: ConversationAnalysis,
         deal_value: float,
         cost_basis: float,
+        product: Product | None = None,
+        quantity: int = 1,
     ) -> list[SimulationOutput]:
         """Run all registered strategies with multi-rollout simulations.
 
@@ -123,6 +124,10 @@ class SimulationEngine:
             Full list-price deal value (USD).  Must be > 0.
         cost_basis:
             Internal cost to fulfil the deal (USD).  Must be >= 0.
+        product:
+            Optional resolved Product ORM model.
+        quantity:
+            Quantity of products being negotiated.
 
         Returns
         -------
@@ -138,7 +143,7 @@ class SimulationEngine:
 
         # Launch all strategies concurrently.
         tasks = [
-            self._simulate_strategy(strategy, twin, analysis, deal_value, cost_basis)
+            self._simulate_strategy(strategy, twin, analysis, deal_value, cost_basis, product, quantity)
             for strategy in strategies
         ]
         results: list[SimulationOutput] = await asyncio.gather(*tasks)
@@ -155,6 +160,8 @@ class SimulationEngine:
         analysis: ConversationAnalysis,
         deal_value: float,
         cost_basis: float,
+        product: Product | None = None,
+        quantity: int = 1,
     ) -> SimulationOutput:
         """Simulate a single strategy with ``rollout_count`` rollouts.
 
@@ -164,6 +171,10 @@ class SimulationEngine:
             The strategy to simulate.
         twin, analysis, deal_value, cost_basis:
             Simulation context (see :meth:`simulate_all`).
+        product:
+            Optional resolved Product catalog model.
+        quantity:
+            Quantity under negotiation.
 
         Returns
         -------
@@ -173,13 +184,22 @@ class SimulationEngine:
 
         # 1. Generate rollout prompts and call LLM in parallel.
         rollout_tasks = [
-            self._run_single_rollout(strategy, twin, analysis, deal_value, cost_basis, i)
+            self._run_single_rollout(strategy, twin, analysis, deal_value, cost_basis, i, product, quantity)
             for i in range(self._rollout_count)
         ]
         raw_outputs: list[LLMStrategyOutput] = await asyncio.gather(*rollout_tasks)
 
         # 2. Clamp each output to strategy constraints.
         constraints = strategy.get_constraints()
+        if product is not None:
+            constraints = dict(constraints)  # Avoid mutating shared class constraints
+            stock = product.stock_quantity
+            # Low stock pressure: limit discounts
+            if stock < 20:
+                constraints["max_discount_percent"] = min(constraints.get("max_discount_percent", 100.0), 10.0)
+            elif stock < 100:
+                constraints["max_discount_percent"] = min(constraints.get("max_discount_percent", 100.0), 20.0)
+
         clamped_outputs: list[LLMStrategyOutput] = [
             self._clamp_output(output, constraints, deal_value)
             for output in raw_outputs
@@ -191,6 +211,7 @@ class SimulationEngine:
         expected_profits: list[float] = []
         expected_values: list[float] = []
         risk_scores: list[float] = []
+        margin_retentions: list[float] = []
         strategy_fits: list[float] = []
 
         for idx, output in enumerate(clamped_outputs):
@@ -200,6 +221,28 @@ class SimulationEngine:
                 cost_basis=cost_basis,
                 discount_percent=output.discount_percent,
                 bundle_value=output.bundle_value,
+                product_selling_price=product.selling_price if product else None,
+                product_cost_price=product.cost_price if product else None,
+                product_minimum_price=product.minimum_price if product else None,
+                quantity=quantity,
+            )
+
+            # Apply product-aware risk adjustment before calling the Scorer
+            if product is not None:
+                closeness = fin_metrics.minimum_price_closeness
+                if closeness > 0.0:
+                    # Nudge margin retention down and leakage up to reflect floor-price pressure
+                    adjusted_retention = max(0.0, fin_metrics.gross_margin_retention * (1.0 - closeness * 0.6))
+                    fin_metrics = FinancialMetrics(
+                        gross_margin_retention=adjusted_retention,
+                        contract_leakage=1.0 - adjusted_retention,
+                        revenue_impact=fin_metrics.revenue_impact,
+                        profit_impact=fin_metrics.profit_impact,
+                        minimum_price_closeness=fin_metrics.minimum_price_closeness,
+                    )
+
+            margin_retentions.append(
+                fin_metrics.gross_margin_retention
             )
 
             # Strategy fit (deterministic scoring).
@@ -233,9 +276,11 @@ class SimulationEngine:
                 customer_reaction=customer_reaction,
             )
 
-            # Derived financial metrics.
-            discounted_revenue = deal_value * (1.0 - output.discount_percent / 100.0)
-            total_cost = cost_basis + output.bundle_value
+            # Derived financial metrics using product prices if present.
+            s_price = product.selling_price if product else deal_value
+            c_price = product.cost_price if product else cost_basis
+            discounted_revenue = (s_price * quantity) * (1.0 - output.discount_percent / 100.0)
+            total_cost = (c_price * quantity) + output.bundle_value
             expected_profit = discounted_revenue - total_cost
             expected_value = close_prob * expected_profit
 
@@ -254,7 +299,7 @@ class SimulationEngine:
                       risk_score=round(risk_score, 6),
                       customer_reaction=customer_reaction,
                       timeline_events=[
-                         "Strategy generated",
+                          "Strategy generated",
                           "Customer reaction simulated",
                           f"Trust delta: {customer_reaction.trust_delta}",
                           f"Buying intent delta: {customer_reaction.buying_intent_delta}",
@@ -269,6 +314,7 @@ class SimulationEngine:
         avg_risk = sum(risk_scores) / n
         avg_profit = sum(expected_profits) / n
         avg_ev = sum(expected_values) / n
+        avg_margin = sum(margin_retentions) / n
 
         # Use the first rollout's offer params as the "representative"
         # offer (they should be similar after clamping).  The reasoning
@@ -285,6 +331,10 @@ class SimulationEngine:
             average_close_probability=round(avg_close_prob, 6),
             average_risk_score=round(avg_risk, 6),
             average_expected_profit=round(avg_profit, 2),
+            average_gross_margin_retention=round(
+                avg_margin,
+                6,
+            ),
             average_expected_value=round(avg_ev, 2),
         )
 
@@ -300,6 +350,8 @@ class SimulationEngine:
         deal_value: float,
         cost_basis: float,
         rollout_index: int,
+        product: Product | None = None,
+        quantity: int = 1,
     ) -> LLMStrategyOutput:
         """Execute a single LLM rollout for a strategy.
 
@@ -310,7 +362,11 @@ class SimulationEngine:
         twin, analysis, deal_value, cost_basis:
             Simulation context.
         rollout_index:
-            Zero-based rollout index (for prompt variance).
+            Zero-based index for prompt variance.
+        product:
+            Resolved Product catalog model.
+        quantity:
+            Negotiated item count.
 
         Returns
         -------
@@ -325,6 +381,20 @@ class SimulationEngine:
             cost_basis=cost_basis,
             rollout_index=rollout_index,
         )
+
+        if product is not None:
+            product_context = (
+                f"\n\n## Product Catalog Constraints Under Negotiation:\n"
+                f"- Product Name: {product.name}\n"
+                f"- Category: {product.category}\n"
+                f"- List Price per unit: ${product.selling_price:,.2f}\n"
+                f"- Quantity: {quantity}\n"
+                f"- Total List Price: ${product.selling_price * quantity:,.2f}\n"
+                f"- Minimum allowed unit floor price: ${product.minimum_price:,.2f}\n"
+                f"- Stock available: {product.stock_quantity} units\n"
+                f"Note: Your proposal must respect these constraints. Do not offer deals below the minimum floor price."
+            )
+            prompt += product_context
 
         try:
             return await self._llm.generate(

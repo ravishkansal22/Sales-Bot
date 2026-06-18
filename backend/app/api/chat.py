@@ -30,6 +30,8 @@ from app.models.simulation import SimulationResult
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.simulation import DigitalTwinProfile, SimulationOutput
 from app.services.llm_service import get_llm_provider, get_settings
+from app.services.product_service import ProductService
+from app.services.customer_profile_builder import CustomerProfileBuilder
 
 router = APIRouter(tags=["chat"])
 
@@ -260,9 +262,31 @@ async def chat(
         db.add(user_turn)
         await db.flush()
 
+        # -- Customer Product & Quantity Resolution --------------------------
+        product = None
+        quantity = request.quantity
+        if request.product_id:
+            try:
+                prod_uuid = uuid.UUID(request.product_id)
+                product = await ProductService.get_product_by_id(db, prod_uuid)
+            except ValueError:
+                product = await ProductService.get_product_by_external_id(db, request.product_id)
+
+        deal_value = product.selling_price * quantity if product else request.deal_value
+        cost_basis = product.cost_price * quantity if product else request.cost_basis
+
+        if deal_value is None or cost_basis is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="deal_value and cost_basis must be provided if product_id is not specified.",
+            )
+
+        # -- Customer History Summary -----------------------------------------
+        customer_summary = await CustomerProfileBuilder.build_summary(db, str(customer.id), customer=customer)
+
         # -- 5. Digital twin --------------------------------------------------
         digital_twin = await twin_builder.build_twin(
-            analysis, history, existing_twin
+            analysis, history, existing_twin, customer_summary
         )
 
         # -- 6. Persist twin snapshot -----------------------------------------
@@ -280,7 +304,7 @@ async def chat(
 
         # -- 7. Simulations ---------------------------------------------------
         simulations = await sim_engine.simulate_all(
-            digital_twin, analysis, request.deal_value, request.cost_basis
+            digital_twin, analysis, deal_value, cost_basis, product, quantity
         )
 
         # -- 8. Strategy optimisation (deterministic) -------------------------

@@ -9,7 +9,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.negotiation_scorer import NegotiationScorer
-from app.schemas.simulation import OptimizerResult, SimulationOutput
+from app.schemas.simulation import (
+    OptimizationMode,
+    OptimizerResult,
+    SimulationOutput,
+)
 
 
 class StrategyOptimizer:
@@ -25,7 +29,10 @@ class StrategyOptimizer:
     """
 
     @staticmethod
-    def optimize(simulations: list[SimulationOutput]) -> OptimizerResult:
+    def optimize(
+       simulations: list[SimulationOutput],
+       mode: OptimizationMode = OptimizationMode.BALANCED,
+    ) -> OptimizerResult:
         """Rank strategies and return the winner.
 
         Parameters
@@ -54,9 +61,13 @@ class StrategyOptimizer:
                 confidence     = NegotiationScorer.calculate_confidence_score(
                                      rollout_strategy_fits, rollout_risk_scores)
                 # Confidence-adjusted EV penalises inconsistent rollouts:
-                adjusted_ev    = expected_value × (0.7 + 0.3 × confidence)
+                optimizer_score = StrategyOptimizer._calculate_strategy_score(
+                   sim,
+                   confidence,
+                   mode,
+                )
 
-            Winner = strategy with highest adjusted_ev.
+            Winner = strategy with highest optimizer_score.
         """
 
         if not simulations:
@@ -82,12 +93,19 @@ class StrategyOptimizer:
 
             # Confidence-adjusted EV: a strategy that is consistent
             # across rollouts is rewarded; an erratic one is penalised.
-            adjusted_ev: float = expected_value * (0.7 + 0.3 * confidence)
+            optimizer_score: float = (
+                StrategyOptimizer._calculate_strategy_score(
+                    sim,
+                    confidence,
+                    mode,
+                )
+            )
 
             rankings.append({
                 "strategy_name": sim.strategy_name,
                 "expected_value": round(expected_value, 2),
-                "adjusted_expected_value": round(adjusted_ev, 2),
+                "optimizer_score": round(optimizer_score, 2),
+                "optimization_mode": mode.value,
                 "average_close_probability": round(sim.average_close_probability, 4),
                 "average_expected_profit": round(sim.average_expected_profit, 2),
                 "average_risk_score": round(sim.average_risk_score, 4),
@@ -96,9 +114,12 @@ class StrategyOptimizer:
             })
 
         # ------------------------------------------------------------------
-        # 2. Sort descending by adjusted_expected_value
+        # 2. Sort descending by optimizer_score
         # ------------------------------------------------------------------
-        rankings.sort(key=lambda r: r["adjusted_expected_value"], reverse=True)
+        rankings.sort(
+            key=lambda r: r["optimizer_score"],
+            reverse=True,
+        )
 
         winner: dict[str, Any] = rankings[0]
 
@@ -114,7 +135,8 @@ class StrategyOptimizer:
 
         return OptimizerResult(
             winning_strategy=winner["strategy_name"],
-            score=winner["adjusted_expected_value"],
+            score=winner["optimizer_score"],
+            optimization_mode=mode,
             optimizer_reasoning=optimizer_reasoning,
             winning_factors=winning_factors,
             risk_score=winner["average_risk_score"],
@@ -125,7 +147,31 @@ class StrategyOptimizer:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+    @staticmethod
+    def _calculate_strategy_score(
+        simulation: SimulationOutput,
+        confidence: float,
+        mode: OptimizationMode,
+    ) -> float:
 
+        if mode == OptimizationMode.MAX_PROFIT:
+            return simulation.average_expected_profit
+
+        if mode == OptimizationMode.MAX_CLOSE_RATE:
+            return simulation.average_close_probability
+
+        if mode == OptimizationMode.MAX_MARGIN:
+            return simulation.average_gross_margin_retention
+
+        balanced_score = (
+            simulation.average_expected_value * 0.40
+            + simulation.average_close_probability * 1000 * 0.30
+            + (1.0 - simulation.average_risk_score) * 1000 * 0.20
+            + confidence * 1000 * 0.10
+        )
+
+        return balanced_score
+    
     @staticmethod
     def _identify_winning_factors(
         winner: dict[str, Any],
@@ -143,7 +189,7 @@ class StrategyOptimizer:
 
         # 1. Highest EV
         factors.append(
-            f"Highest adjusted expected value (${winner['adjusted_expected_value']:,.2f})"
+            f"Highest optimizer_score ({winner['optimizer_score']:,.2f})"
         )
 
         # 2. Close probability
@@ -180,12 +226,12 @@ class StrategyOptimizer:
         if len(rankings) >= 2:
             runner_up = rankings[1]
             margin = (
-                winner["adjusted_expected_value"]
-                - runner_up["adjusted_expected_value"]
+                winner["optimizer_score"]
+                - runner_up["optimizer_score"]
             )
             if margin > 0:
                 factors.append(
-                    f"${margin:,.2f} advantage over runner-up "
+                    f"{margin:,.2f} advantage over runner-up "
                     f"({runner_up['strategy_name']})"
                 )
 
@@ -195,19 +241,13 @@ class StrategyOptimizer:
     def _build_reasoning(
         winner: dict[str, Any],
         rankings: list[dict[str, Any]],
-        winning_factors: list[str],
+        winning_factors: list[str] | None = None,
     ) -> str:
-        """Build a deterministic, human-readable explanation.
-
-        Returns
-        -------
-        str
-            Multi-sentence reasoning paragraph.
-        """
+        """Build a deterministic, human-readable explanation."""
 
         lines: list[str] = [
             f"The '{winner['strategy_name']}' strategy is recommended with an "
-            f"adjusted expected value of ${winner['adjusted_expected_value']:,.2f}.",
+            f"optimizer score of {winner['optimizer_score']:,.2f}.",
         ]
 
         lines.append(
@@ -251,7 +291,7 @@ class StrategyOptimizer:
             runner_up = rankings[1]
             lines.append(
                 f"Runner-up '{runner_up['strategy_name']}' scored "
-                f"${runner_up['adjusted_expected_value']:,.2f}."
+                f"{runner_up['optimizer_score']:,.2f}."
             )
 
         return " ".join(lines)

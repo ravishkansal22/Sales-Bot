@@ -243,10 +243,10 @@ def test_strategy_optimizer() -> None:
     # adjusted EV = 2000
     result = StrategyOptimizer.optimize(sims)
     assert result.winning_strategy == "discount"
-    assert result.score == 3200.0
+    assert result.score == 1780.0
     assert result.confidence_score == 1.0
     assert result.risk_score == 0.2
     assert len(result.all_rankings) == 2
     assert result.all_rankings[0]["strategy_name"] == "discount"
     assert result.all_rankings[1]["strategy_name"] == "hardline"
-    assert "Highest adjusted expected value" in result.winning_factors[0]
+    assert "Highest optimizer_score" in result.winning_factors[0]

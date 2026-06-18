@@ -8,7 +8,7 @@ results through to the optimizer's final ranking, plus the request
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-
+from enum import Enum
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -212,6 +212,10 @@ class SimulationOutput(BaseModel):
     average_expected_profit: float = Field(
         ..., description="Mean expected profit"
     )
+    average_gross_margin_retention: float = Field(
+        default=0.0,
+        description="Mean gross margin retention"
+    )
     average_expected_value: float = Field(
         ..., description="Mean expected value / revenue"
     )
@@ -235,7 +239,17 @@ class FinancialMetrics(BaseModel):
     contract_leakage: float = Field(
         ..., description="Estimated contract leakage"
     )
+    minimum_price_closeness: float = Field(
+        default=0.0, description="Closeness to minimum price threshold (0 to 1)"
+    )
 
+class OptimizationMode(str, Enum):
+    """Business objective used by the strategy optimizer."""
+
+    BALANCED = "balanced"
+    MAX_PROFIT = "max_profit"
+    MAX_MARGIN = "max_margin"
+    MAX_CLOSE_RATE = "max_close_rate"
 
 class OptimizerResult(BaseModel):
     """The optimizer's final strategy selection.
@@ -255,6 +269,10 @@ class OptimizerResult(BaseModel):
         ..., description="Name of the winning strategy"
     )
     score: float = Field(..., description="Composite optimizer score")
+    optimization_mode: OptimizationMode = Field(
+        ...,
+        description="Business objective used for optimization"
+    )
     optimizer_reasoning: str = Field(
         ..., description="Explanation for the selection"
     )
@@ -284,9 +302,15 @@ class SimulateRequest(BaseModel):
 
     message: str = Field(..., min_length=1, description="Customer message text")
     customer_id: str = Field(..., description="UUID of the customer")
-    deal_value: float = Field(..., gt=0, description="Total deal value")
-    cost_basis: float = Field(..., gt=0, description="Cost basis for margin calculations")
-
+    deal_value: float | None = Field(default=None, description="Total deal value. Inferred if product_id is provided.")
+    cost_basis: float | None = Field(default=None, description="Cost basis. Inferred if product_id is provided.")
+    product_id: str | None = Field(default=None, description="UUID or external ID of product under negotiation")
+    quantity: int = Field(default=1, ge=1, description="Quantity of products being negotiated")
+    
+    optimization_mode: OptimizationMode = Field(
+        default=OptimizationMode.BALANCED,
+        description="Business objective used for optimization",
+    )
 
 class SimulateResponse(BaseModel):
     """Response payload from the standalone simulation endpoint.

@@ -86,16 +86,23 @@ app.add_middleware(
 try:
     from app.api.chat import router as chat_router
 
-    app.include_router(chat_router, tags=["Chat"])
+    app.include_router(chat_router, prefix="/api/v1", tags=["Chat"])
 except ImportError:
     logger.warning("app.api.chat router not found – skipping mount")
 
 try:
     from app.api.simulation import router as simulation_router
 
-    app.include_router(simulation_router, tags=["Simulation"])
+    app.include_router(simulation_router, prefix="/api/v1", tags=["Simulation"])
 except ImportError:
     logger.warning("app.api.simulation router not found – skipping mount")
+
+try:
+    from app.api.catalog import router as catalog_router
+
+    app.include_router(catalog_router)
+except ImportError:
+    logger.warning("app.api.catalog router not found – skipping mount")
 
 
 # ---------------------------------------------------------------------------

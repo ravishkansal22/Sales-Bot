@@ -8,6 +8,7 @@ strategy exploration, and debugging.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,6 +29,8 @@ from app.schemas.simulation import (
     SimulateResponse,
 )
 from app.services.llm_service import get_llm_provider, get_settings
+from app.services.product_service import ProductService
+from app.services.customer_profile_builder import CustomerProfileBuilder
 
 router = APIRouter(tags=["simulation"])
 
@@ -196,7 +199,7 @@ async def simulate(
         )
 
         # -- Customer ---------------------------------------------------------
-        _customer = await _get_or_create_customer(db, request.customer_id)
+        customer = await _get_or_create_customer(db, request.customer_id)
 
         # -- History & existing twin ------------------------------------------
         history = await _load_conversation_history(db, request.customer_id)
@@ -212,18 +215,43 @@ async def simulate(
         # -- Analysis ---------------------------------------------------------
         analysis = await analyzer.analyze(request.message, history)
 
+        # -- Customer Product & Quantity Resolution --------------------------
+        product = None
+        quantity = request.quantity
+        if request.product_id:
+            try:
+                prod_uuid = uuid.UUID(request.product_id)
+                product = await ProductService.get_product_by_id(db, prod_uuid)
+            except ValueError:
+                product = await ProductService.get_product_by_external_id(db, request.product_id)
+
+        deal_value = product.selling_price * quantity if product else request.deal_value
+        cost_basis = product.cost_price * quantity if product else request.cost_basis
+
+        if deal_value is None or cost_basis is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="deal_value and cost_basis must be provided if product_id is not specified.",
+            )
+
+        # -- Customer History Summary -----------------------------------------
+        customer_summary = await CustomerProfileBuilder.build_summary(db, str(customer.id), customer=customer)
+
         # -- Digital twin -----------------------------------------------------
         digital_twin = await twin_builder.build_twin(
-            analysis, history, existing_twin
+            analysis, history, existing_twin, customer_summary
         )
 
         # -- Simulations ------------------------------------------------------
         simulations = await sim_engine.simulate_all(
-            digital_twin, analysis, request.deal_value, request.cost_basis
+            digital_twin, analysis, deal_value, cost_basis, product, quantity
         )
 
         # -- Deterministic optimisation ---------------------------------------
-        winner = StrategyOptimizer.optimize(simulations)
+        winner = StrategyOptimizer.optimize(
+            simulations,
+            request.optimization_mode,
+        )
 
         return SimulateResponse(
             digital_twin=digital_twin,

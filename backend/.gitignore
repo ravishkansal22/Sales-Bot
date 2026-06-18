@@ -1,0 +1,4 @@
+.env
+.env.*
+data/raw/amazon_dataset.csv
+data/raw/ecommerce_dataset.csv

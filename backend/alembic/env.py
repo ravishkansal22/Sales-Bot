@@ -15,6 +15,9 @@ from __future__ import annotations
 import asyncio
 import os
 from logging.config import fileConfig
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -30,6 +33,8 @@ from app.db.postgres import Base
 from app.models.conversation import Conversation  # noqa: F401
 from app.models.customer import Customer, DigitalTwinSnapshot  # noqa: F401
 from app.models.simulation import SimulationResult  # noqa: F401
+from app.models.product import Product  # noqa: F401
+from app.models.order import Order  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Alembic Config & logging

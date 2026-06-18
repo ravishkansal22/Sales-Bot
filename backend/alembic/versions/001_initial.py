@@ -45,7 +45,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(255), nullable=True),
         sa.Column(
             "metadata_",
-            postgresql.JSONB(asynchronous_creation=True),
+            postgresql.JSONB(),
             nullable=True,
             server_default=sa.text("'{}'::jsonb"),
         ),
@@ -86,7 +86,7 @@ def upgrade() -> None:
         sa.Column("role", sa.String(50), nullable=False),
         sa.Column(
             "analysis",
-            postgresql.JSONB(asynchronous_creation=True),
+            postgresql.JSONB(),
             nullable=True,
         ),
         sa.Column(
@@ -166,13 +166,13 @@ def upgrade() -> None:
         sa.Column("optimizer_reasoning", sa.Text, nullable=True),
         sa.Column(
             "winning_factors",
-            postgresql.JSONB(asynchronous_creation=True),
+            postgresql.JSONB(),
             nullable=True,
         ),
         sa.Column("rollout_count", sa.Integer, nullable=True),
         sa.Column(
             "rollouts",
-            postgresql.JSONB(asynchronous_creation=True),
+            postgresql.JSONB(),
             nullable=True,
         ),
         sa.Column("is_winner", sa.Boolean, nullable=False, server_default=sa.text("false")),

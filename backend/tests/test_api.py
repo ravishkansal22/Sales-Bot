@@ -153,7 +153,7 @@ def test_chat_endpoint(mock_get_llm: MagicMock, client: TestClient, mock_db: Mag
         "cost_basis": 8000.0,
     }
 
-    response = client.post("/chat", json=payload)
+    response = client.post("/api/v1/chat", json=payload)
 
     assert response.status_code == 200, response.text
     data = response.json()
@@ -193,7 +193,7 @@ def test_simulate_endpoint(mock_get_llm: MagicMock, client: TestClient, mock_db:
         "cost_basis": 12000.0,
     }
 
-    response = client.post("/simulate", json=payload)
+    response = client.post("/api/v1/simulate", json=payload)
 
     assert response.status_code == 200, response.text
     data = response.json()

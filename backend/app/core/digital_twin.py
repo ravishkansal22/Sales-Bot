@@ -6,11 +6,14 @@ behavioural profile from conversation analysis and history.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.schemas.chat import ConversationAnalysis
 from app.schemas.simulation import DigitalTwinProfile
 from app.services.llm.base import LLMProvider
+
+if TYPE_CHECKING:
+    from app.services.customer_profile_builder import CustomerHistorySummary
 
 _SYSTEM_PROMPT: str = """\
 You are a customer behaviour modelling expert.  Given a conversation
@@ -54,6 +57,10 @@ in markdown fences.
 - If an **existing twin** is provided, treat it as a Bayesian prior.
   Nudge scores toward the new evidence but do not discard prior
   information unless the new signal is very strong.
+- If customer purchase history summary is provided, use it to ground the behavioral scores:
+  - Frequent purchaser / High total spend -> Higher brand_loyalty.
+  - High return rate -> Higher risk_aversion.
+  - Repeated discount purchases / low average spend -> Higher price_sensitivity.
 - If no existing twin is provided, infer from scratch.
 - History gives you longitudinal signal — early messages establish a
   baseline; recent messages may shift scores.
@@ -91,6 +98,7 @@ class DigitalTwinBuilder:
         analysis: ConversationAnalysis,
         history: list[dict[str, Any]] | None = None,
         existing_twin: DigitalTwinProfile | None = None,
+        customer_history_summary: CustomerHistorySummary | None = None,
     ) -> DigitalTwinProfile:
         """Build or incrementally update a digital twin.
 
@@ -103,6 +111,8 @@ class DigitalTwinBuilder:
             at least ``{"role": str, "content": str}``.
         existing_twin:
             Optional prior twin profile to use as a Bayesian prior.
+        customer_history_summary:
+            Optional customer purchase history statistics.
 
         Returns
         -------
@@ -110,7 +120,9 @@ class DigitalTwinBuilder:
             The inferred (or updated) customer profile.
         """
 
-        user_prompt = self._build_user_prompt(analysis, history, existing_twin)
+        user_prompt = self._build_user_prompt(
+            analysis, history, existing_twin, customer_history_summary
+        )
         return await self._llm.generate(
             prompt=user_prompt,
             system_prompt=_SYSTEM_PROMPT,
@@ -126,6 +138,7 @@ class DigitalTwinBuilder:
         analysis: ConversationAnalysis,
         history: list[dict[str, Any]] | None,
         existing_twin: DigitalTwinProfile | None,
+        customer_history_summary: CustomerHistorySummary | None = None,
     ) -> str:
         """Assemble the user prompt with all available context.
 
@@ -137,6 +150,8 @@ class DigitalTwinBuilder:
             Optional conversation history.
         existing_twin:
             Optional prior twin to update.
+        customer_history_summary:
+            Optional customer purchase history summary.
 
         Returns
         -------
@@ -154,6 +169,18 @@ class DigitalTwinBuilder:
             parts.append(f"- Risk Aversion: {existing_twin.risk_aversion:.2f}")
             parts.append(f"- Brand Loyalty: {existing_twin.brand_loyalty:.2f}")
             parts.append(f"- Decision Speed: {existing_twin.decision_speed:.2f}")
+            parts.append("")
+
+        # --- customer history summary -------------------------------------
+        if customer_history_summary:
+            parts.append("## Customer Purchase History Summary")
+            parts.append(f"- Total Orders: {customer_history_summary.total_orders}")
+            parts.append(f"- Total Spend: ${customer_history_summary.total_spend:,.2f}")
+            parts.append(f"- Average Spend: ${customer_history_summary.average_spend:,.2f}")
+            parts.append(f"- Return Rate: {customer_history_summary.return_rate:.1%}")
+            parts.append(f"- Frequent Categories: {', '.join(customer_history_summary.frequent_categories)}")
+            parts.append(f"- Repeated Discount Purchases: {customer_history_summary.repeated_discount_purchases_count}")
+            parts.append(f"- Customer Segment: {customer_history_summary.segment}")
             parts.append("")
 
         # --- conversation history ----------------------------------------

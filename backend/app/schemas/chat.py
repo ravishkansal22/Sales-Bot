@@ -63,8 +63,10 @@ class ChatRequest(BaseModel):
 
     message: str = Field(..., min_length=1, description="Customer message text")
     customer_id: str = Field(..., description="UUID of the customer")
-    deal_value: float = Field(..., gt=0, description="Total deal value")
-    cost_basis: float = Field(..., gt=0, description="Cost basis for margin calculations")
+    deal_value: float | None = Field(default=None, description="Total deal value. Inferred if product_id is provided.")
+    cost_basis: float | None = Field(default=None, description="Cost basis. Inferred if product_id is provided.")
+    product_id: str | None = Field(default=None, description="UUID or external ID of product under negotiation")
+    quantity: int = Field(default=1, ge=1, description="Quantity of products being negotiated")
 
 
 from app.schemas.simulation import (  # noqa: E402

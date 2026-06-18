@@ -27,51 +27,20 @@ class FinancialEvaluator:
         cost_basis: float,
         discount_percent: float,
         bundle_value: float,
+        product_selling_price: float | None = None,
+        product_cost_price: float | None = None,
+        product_minimum_price: float | None = None,
+        quantity: int = 1,
     ) -> FinancialMetrics:
         """Compute deterministic financial metrics for a deal configuration.
 
-        Parameters
-        ----------
-        deal_value:
-            Total revenue of the deal at list price (USD).  Must be > 0.
-        cost_basis:
-            Internal cost to fulfil the deal **excluding** bundle add-ons
-            (USD).  Must be >= 0.
-        discount_percent:
-            Percentage discount offered to the customer (0–100).
-        bundle_value:
-            Additional cost of value-add bundles included in the offer
-            (USD).  Must be >= 0.
-
-        Returns
-        -------
-        FinancialMetrics
-            A Pydantic model containing:
-
-            * **gross_margin_retention** – fraction of original gross
-              margin retained after the discount + bundle cost.
-              Clamped to ``[0.0, 1.0]``.
-            * **revenue_impact** – fractional change in revenue vs. list
-              price.  Negative when a discount is applied.
-            * **profit_impact** – absolute dollar change in gross profit
-              vs. the no-discount baseline.
-            * **contract_leakage** – ``1 − gross_margin_retention``,
-              i.e. the fraction of margin that has been eroded.
-
-        Formulae
-        --------
-        ::
-
-            discounted_revenue  = deal_value × (1 − discount_percent / 100)
-            total_cost          = cost_basis + bundle_value
-            original_margin     = deal_value − cost_basis
-            new_margin          = discounted_revenue − total_cost
-
-            gross_margin_retention = clamp(new_margin / original_margin, 0, 1)
-            revenue_impact         = (discounted_revenue − deal_value) / deal_value
-            profit_impact          = new_margin − original_margin
-            contract_leakage       = 1 − gross_margin_retention
+        Supports dynamic product-derived overrides if product pricing is provided.
         """
+        # --- apply product overrides if provided -----------------------------
+        if product_selling_price is not None:
+            deal_value = product_selling_price * quantity
+        if product_cost_price is not None:
+            cost_basis = product_cost_price * quantity
 
         # --- guard against degenerate inputs --------------------------------
         if deal_value <= 0:
@@ -80,6 +49,7 @@ class FinancialEvaluator:
                 revenue_impact=0.0,
                 profit_impact=0.0,
                 contract_leakage=1.0,
+                minimum_price_closeness=1.0,
             )
 
         discount_percent = max(0.0, min(discount_percent, 100.0))
@@ -93,8 +63,6 @@ class FinancialEvaluator:
 
         # --- derived metrics ------------------------------------------------
         if original_margin <= 0:
-            # Edge case: deal is already at or below cost.  Any discount or
-            # bundle cost makes things worse, so retention is 0.
             gross_margin_retention = 0.0
         else:
             gross_margin_retention = max(0.0, min(new_margin / original_margin, 1.0))
@@ -103,9 +71,26 @@ class FinancialEvaluator:
         profit_impact: float = new_margin - original_margin
         contract_leakage: float = 1.0 - gross_margin_retention
 
+        # --- calculate closeness to minimum price floor ----------------------
+        minimum_price_closeness = 0.0
+        if product_minimum_price is not None:
+            min_allowed = product_minimum_price * quantity
+            net_price = discounted_revenue - bundle_value
+            
+            if net_price <= min_allowed:
+                minimum_price_closeness = 1.0
+            else:
+                price_cushion = net_price - min_allowed
+                max_cushion = deal_value - min_allowed
+                if max_cushion > 0:
+                    minimum_price_closeness = 1.0 - min(1.0, max(0.0, price_cushion / max_cushion))
+                else:
+                    minimum_price_closeness = 1.0
+
         return FinancialMetrics(
             gross_margin_retention=round(gross_margin_retention, 6),
             revenue_impact=round(revenue_impact, 6),
             profit_impact=round(profit_impact, 2),
             contract_leakage=round(contract_leakage, 6),
+            minimum_price_closeness=round(minimum_price_closeness, 6),
         )
