@@ -250,3 +250,78 @@ def test_strategy_optimizer() -> None:
     assert result.all_rankings[0]["strategy_name"] == "discount"
     assert result.all_rankings[1]["strategy_name"] == "hardline"
     assert "Highest optimizer_score" in result.winning_factors[0]
+
+
+def test_config_overrides() -> None:
+    """Test that overrides of config settings are successfully propagated."""
+    from app.services.llm_service import settings
+    from app.core.config_layer import NegotiationConfig
+
+    # Check original value
+    original_coef = NegotiationConfig.VOLUME_COEFFICIENT
+    assert original_coef == 3.3
+
+    # Modify settings value
+    settings.VOLUME_COEFFICIENT = 5.5
+    try:
+        assert NegotiationConfig.VOLUME_COEFFICIENT == 5.5
+    finally:
+        # Restore original value
+        settings.VOLUME_COEFFICIENT = original_coef
+
+    # Test segment modifiers
+    original_segment_modifiers = settings.SEGMENT_MODIFIERS
+    try:
+        settings.SEGMENT_MODIFIERS = {"VIP": 10.0, "STRATEGIC": 8.0, "default": 1.0}
+        assert NegotiationConfig.SEGMENT_MODIFIERS["VIP"] == 10.0
+        assert NegotiationConfig.SEGMENT_MODIFIERS["STRATEGIC"] == 8.0
+        assert NegotiationConfig.SEGMENT_MODIFIERS["default"] == 1.0
+    finally:
+        settings.SEGMENT_MODIFIERS = original_segment_modifiers
+
+    # Test scoring weights
+    original_scoring_weights = settings.SCORING_WEIGHTS
+    try:
+        settings.SCORING_WEIGHTS = {"expected_value": 0.50, "close_probability": 0.50}
+        assert NegotiationConfig.SCORING_WEIGHTS["expected_value"] == 0.50
+        assert NegotiationConfig.SCORING_WEIGHTS["close_probability"] == 0.50
+    finally:
+        settings.SCORING_WEIGHTS = original_scoring_weights
+
+
+def test_dynamic_ceiling_constraints() -> None:
+    """Test dynamic ceiling calculation and floor clamping."""
+    from app.core.simulation_engine import SimulationEngine
+    from app.models.product import Product
+    from unittest.mock import MagicMock
+
+    engine = SimulationEngine(llm=MagicMock(), registry=MagicMock())
+
+    # Product with minimum price that allows 64% discount
+    prod_high_floor = Product(
+        selling_price=1000.0,
+        minimum_price=360.0,
+        stock_quantity=40,
+    )
+    # Stage 0: base 5% ceiling, stock=40 triggers min clamp with STOCK_MEDIUM_CEILING (10.0%)
+    ceiling_1 = engine.calculate_dynamic_ceiling(
+        product=prod_high_floor,
+        quantity=1,
+        history=[],
+    )
+    assert ceiling_1 <= 10.0
+
+    # Product with high minimum price that allows only 4% discount
+    prod_low_floor = Product(
+        selling_price=1000.0,
+        minimum_price=960.0,
+        stock_quantity=150,
+    )
+    ceiling_2 = engine.calculate_dynamic_ceiling(
+        product=prod_low_floor,
+        quantity=1,
+        history=[],
+    )
+    assert round(ceiling_2, 6) == 4.0
+
+

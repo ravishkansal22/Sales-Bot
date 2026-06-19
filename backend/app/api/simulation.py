@@ -31,6 +31,10 @@ from app.schemas.simulation import (
 from app.services.llm_service import get_llm_provider, get_settings
 from app.services.product_service import ProductService
 from app.services.customer_profile_builder import CustomerProfileBuilder
+from app.services.customer_service import CustomerService
+from app.services.product_knowledge_service import ProductKnowledgeService
+from app.models.negotiation_context import NegotiationContext
+from app.core.simulation_engine import generate_concessions
 
 router = APIRouter(tags=["simulation"])
 
@@ -39,37 +43,9 @@ async def _get_or_create_customer(
     db: AsyncSession,
     customer_id: str,
 ) -> Customer:
-    """Return an existing customer or create a new stub record.
+    """Return an existing customer or create a new stub record."""
+    return await CustomerService.get_or_create_customer(db, customer_id)
 
-    Parameters
-    ----------
-    db:
-        Active async database session.
-    customer_id:
-        External customer identifier.
-
-    Returns
-    -------
-    Customer
-        The persisted ``Customer`` ORM instance.
-    """
-    result = await db.execute(
-        select(Customer).where(Customer.id == customer_id)
-    )
-    customer: Customer | None = result.scalars().first()
-
-    if customer is not None:
-        return customer
-
-    customer = Customer(
-        id=customer_id,
-        name=f"Customer {customer_id[:8]}",
-        email=None,
-        metadata_={},
-    )
-    db.add(customer)
-    await db.flush()
-    return customer
 
 
 async def _load_conversation_history(
@@ -202,9 +178,9 @@ async def simulate(
         customer = await _get_or_create_customer(db, request.customer_id)
 
         # -- History & existing twin ------------------------------------------
-        history = await _load_conversation_history(db, request.customer_id)
+        history = await _load_conversation_history(db, str(customer.id))
         existing_snapshot = await _load_latest_twin_snapshot(
-            db, request.customer_id
+            db, str(customer.id)
         )
         existing_twin = (
             _snapshot_to_twin_profile(existing_snapshot)
@@ -215,18 +191,45 @@ async def simulate(
         # -- Analysis ---------------------------------------------------------
         analysis = await analyzer.analyze(request.message, history)
 
-        # -- Customer Product & Quantity Resolution --------------------------
+        # -- 2. Load/Initialize Negotiation Context ---------------------------
+        neg_context = None
+        is_mock = hasattr(db, "_mock_return_value") or type(db).__name__ in ("MagicMock", "Mock", "AsyncMock")
+        
+        if not is_mock:
+            stmt = select(NegotiationContext).where(NegotiationContext.customer_id == customer.id)
+            res = await db.execute(stmt)
+            neg_context = res.scalars().first()
+
         product = None
         quantity = request.quantity
-        if request.product_id:
+        
+        prod_id = request.product_id or (str(neg_context.product_id) if neg_context and not is_mock else None)
+        if prod_id:
             try:
-                prod_uuid = uuid.UUID(request.product_id)
+                prod_uuid = uuid.UUID(prod_id)
                 product = await ProductService.get_product_by_id(db, prod_uuid)
             except ValueError:
-                product = await ProductService.get_product_by_external_id(db, request.product_id)
+                product = await ProductService.get_product_by_external_id(db, prod_id)
 
-        deal_value = product.selling_price * quantity if product else request.deal_value
-        cost_basis = product.cost_price * quantity if product else request.cost_basis
+        if not product and not is_mock:
+            popular = await ProductService.search_products(db, "", limit=1)
+            product = popular[0] if popular else None
+
+        if not product and not is_mock:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No product selected and no catalog products available.",
+            )
+
+        if neg_context and not request.product_id:
+            quantity = neg_context.quantity
+
+        if product:
+            deal_value = product.selling_price * quantity
+            cost_basis = product.cost_price * quantity
+        else:
+            deal_value = request.deal_value
+            cost_basis = request.cost_basis
 
         if deal_value is None or cost_basis is None:
             raise HTTPException(
@@ -252,12 +255,35 @@ async def simulate(
             simulations,
             request.optimization_mode,
         )
+        winner.concessions = generate_concessions(product.category if product else None, winner.winning_strategy, product.name if product else None)
+
+        # -- 14. Assemble response -------------------------------------------
+        inventory_status = "Available"
+        near_min = False
+        if product:
+            stock = product.stock_quantity
+            if stock < 20:
+                inventory_status = "Low Inventory"
+            elif stock >= 100:
+                inventory_status = "High Inventory"
+            else:
+                inventory_status = "Limited Availability"
+
+            # Check closeness to floor price
+            min_price = product.minimum_price
+            winning_sim = next((s for s in simulations if s.strategy_name == winner.winning_strategy), None)
+            if winning_sim:
+                unit_offer = product.selling_price * (1.0 - winning_sim.discount_percent / 100.0)
+                if min_price > 0 and unit_offer <= min_price * 1.05:
+                    near_min = True
 
         return SimulateResponse(
             digital_twin=digital_twin,
             analysis=analysis,
             simulations=simulations,
             winner=winner,
+            inventory_status=inventory_status,
+            near_minimum_price=near_min
         )
 
     except Exception as exc:

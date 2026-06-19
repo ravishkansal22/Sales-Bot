@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.customer import Customer
 from app.models.order import Order
 from app.models.product import Product
+from app.services.customer_service import CustomerService
 
 
 class CustomerHistorySummary(BaseModel):
@@ -62,24 +63,9 @@ class CustomerProfileBuilder:
             An populated CustomerHistorySummary.
         """
         if customer is None:
-            # Resolve UUID
-            try:
-                cust_uuid = uuid.UUID(customer_id) if isinstance(customer_id, str) else customer_id
-            except ValueError:
-                # Try lookup by external ID
-                result = await db.execute(
-                    select(Customer).where(Customer.external_customer_id == customer_id)
-                )
-                customer = result.scalars().first()
-                if not customer:
-                    return CustomerHistorySummary(customer_id=str(customer_id))
-                cust_uuid = customer.id
-            else:
-                # Fetch precomputed customer stats using select (fully mock-compatible)
-                res = await db.execute(select(Customer).where(Customer.id == cust_uuid))
-                customer = res.scalars().first()
-                if not customer:
-                    return CustomerHistorySummary(customer_id=str(customer_id))
+            customer = await CustomerService.resolve_customer(db, str(customer_id))
+            if not customer:
+                return CustomerHistorySummary(customer_id=str(customer_id))
 
         cust_uuid = customer.id
         total_orders = customer.total_orders or 0

@@ -87,6 +87,7 @@ class ProductService:
         for term in terms:
             conditions.append(Product.name.ilike(f"%{term}%"))
             conditions.append(Product.category.ilike(f"%{term}%"))
+            conditions.append(Product.description.ilike(f"%{term}%"))
 
         stmt = select(Product).where(or_(*conditions)).limit(limit)
         result = await db.execute(stmt)

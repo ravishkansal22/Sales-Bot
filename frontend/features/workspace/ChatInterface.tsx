@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNegotiationState } from '../../hooks/useNegotiationState';
-import { Send, Cpu, User, Sparkles, AlertCircle, ShoppingBag, Gift } from 'lucide-react';
+import { Send, Cpu, User, Sparkles, ShoppingBag, Gift } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ChatInterface() {
@@ -12,16 +12,25 @@ export default function ChatInterface() {
     isTyping, 
     typingStatus, 
     activeProduct,
-    dealSummary 
+    dealSummary,
+    selectProduct
   } = useNegotiationState();
 
   const [input, setInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
+
+  // Focus input when active product changes
+  useEffect(() => {
+    if (activeProduct) {
+      inputRef.current?.focus();
+    }
+  }, [activeProduct]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,15 +65,15 @@ export default function ChatInterface() {
   const promptSuggestions = [
     { text: "Mention competitor offer is 20% cheaper.", label: "Competitor Leverage" },
     { text: "Request a 15% discount for a bulk trial contract.", label: "Discount Target" },
-    { text: "What accessories can you bundle with the bat?", label: "Ask for Bundles" },
+    { text: "What specifications can you share for comparison?", label: "Compare Specs" },
     { text: "I accept the calibrated proposal terms.", label: "Accept Deal" }
   ];
 
   return (
-    <div className="glass-panel rounded-xl p-5 flex flex-col h-full min-h-[550px]">
+    <div className="glass-panel rounded-xl p-5 flex flex-col h-full min-h-0">
       
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
+      <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4 shrink-0">
         <div className="flex items-center space-x-2">
           <Cpu className="h-4 w-4 text-cyan-glow" />
           <span className="font-mono text-xs font-bold tracking-widest text-white/80 uppercase">
@@ -95,7 +104,7 @@ export default function ChatInterface() {
                 {/* Chat Bubble */}
                 <div className={`rounded-xl p-4 border text-xs leading-relaxed font-sans ${
                   isCustomer
-                    ? 'bg-cyan-glow/5 border-cyan-glow/20 text-white shadow-[0,0,10px_rgba(0,242,254,0.02)]'
+                    ? 'bg-cyan-glow/5 border-cyan-glow/20 text-white shadow-[0_0_10px_rgba(0,242,254,0.02)]'
                     : 'bg-white/[0.02] border-white/10 text-white/90'
                 }`}>
                   <div className="flex items-center justify-between space-x-8 mb-1.5 border-b border-white/5 pb-1 font-mono text-[9px] text-white/40">
@@ -116,6 +125,111 @@ export default function ChatInterface() {
                   </div>
                   <p className="whitespace-pre-wrap">{msg.text}</p>
                 </div>
+                
+                {/* Dynamic Product Comparison Table */}
+                {!isCustomer && msg.intent_type === 'product_comparison' && msg.comparison_results && (
+                  <div className="mt-3 w-full overflow-x-auto rounded-xl border border-white/10 bg-black/40 p-4 shadow-[0_0_15px_rgba(0,242,254,0.03)]">
+                    <div className="font-mono text-[9px] font-bold text-cyan-glow uppercase tracking-wider mb-3 flex items-center space-x-1.5">
+                      <Sparkles className="h-3 w-3 text-cyan-glow animate-pulse" />
+                      <span>Side-by-Side B2B Product Comparison</span>
+                    </div>
+                    <table className="w-full text-left border-collapse text-[10.5px] text-white/90">
+                      <thead>
+                        <tr className="border-b border-white/10">
+                          <th className="py-2 pr-4 font-semibold text-white/40">Feature</th>
+                          {msg.comparison_results.products.map((p: any) => (
+                            <th key={p.id} className="py-2 px-3 font-mono font-bold text-cyan-glow min-w-[120px]">
+                              {p.name}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        <tr>
+                          <td className="py-2 pr-4 text-white/40 font-mono">Category</td>
+                          {msg.comparison_results.products.map((p: any) => (
+                            <td key={p.id} className="py-2 px-3 font-semibold text-white/70">
+                              {p.category}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td className="py-2 pr-4 text-white/40 font-mono">Catalog Price</td>
+                          {msg.comparison_results.products.map((p: any) => (
+                            <td key={p.id} className="py-2 px-3 font-mono font-bold text-emerald-400">
+                              ₹{p.price.toLocaleString()}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td className="py-2 pr-4 text-white/40 font-mono">Inventory Stock</td>
+                          {msg.comparison_results.products.map((p: any) => (
+                            <td key={p.id} className="py-2 px-3">
+                              {p.stock} units
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td className="py-2 pr-4 text-white/40 font-mono">Popularity Index</td>
+                          {msg.comparison_results.products.map((p: any) => (
+                            <td key={p.id} className="py-2 px-3 text-amber-400 font-mono">
+                              ★ {p.popularity}/5.0
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td className="py-2 pr-4 text-white/40 font-mono">Customer Return Rate</td>
+                          {msg.comparison_results.products.map((p: any) => (
+                            <td key={p.id} className="py-2 px-3 text-red-400/80">
+                              {p.return_rate.toFixed(2)}%
+                            </td>
+                          ))}
+                        </tr>
+                        {msg.comparison_results.spec_names.map((specName: string) => (
+                          <tr key={specName}>
+                            <td className="py-2 pr-4 text-white/40 font-mono">{specName}</td>
+                            {msg.comparison_results.products.map((p: any) => (
+                              <td key={p.id} className="py-2 px-3 text-white/70">
+                                {p.specifications[specName] || <span className="text-white/25 italic">Unavailable</span>}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Recommended Products Cards */}
+                {msg.recommended_products && msg.recommended_products.length > 0 && (
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                    {msg.recommended_products.map((prod: any) => (
+                      <div
+                        key={prod.id}
+                        onClick={() => selectProduct(prod.id)}
+                        className="rounded-xl border border-white/10 bg-black/30 hover:border-cyan-glow/50 hover:bg-cyan-glow/[0.02] p-3.5 cursor-pointer transition-all flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="flex justify-between items-start mb-1.5">
+                            <h4 className="font-mono text-[11px] font-bold text-white uppercase tracking-wide">
+                              {prod.name}
+                            </h4>
+                            <span className="font-mono text-[10px] text-cyan-glow font-bold">
+                              ₹{prod.price ? prod.price.toLocaleString() : (prod.selling_price ? prod.selling_price.toLocaleString() : '')}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-white/50 font-sans leading-relaxed line-clamp-2">
+                            {prod.description}
+                          </p>
+                        </div>
+                        <div className="mt-2.5 pt-2 border-t border-white/5 flex justify-between font-mono text-[8px]">
+                          <span className="text-white/30 uppercase">Category</span>
+                          <span className="text-white/70 font-bold">{prod.category}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Inline Special Offer Card */}
                 {offer && (
@@ -203,7 +317,7 @@ export default function ChatInterface() {
       </div>
 
       {/* Suggested prompts buttons */}
-      <div className="mb-4">
+      <div className="mb-4 shrink-0">
         <p className="text-[8px] font-mono text-white/30 tracking-widest uppercase mb-2">
           Suggested Actions
         </p>
@@ -222,8 +336,9 @@ export default function ChatInterface() {
       </div>
 
       {/* Message Input Panel */}
-      <form onSubmit={handleSubmit} className="flex space-x-3 items-center">
+      <form onSubmit={handleSubmit} className="flex space-x-3 items-center shrink-0">
         <input
+          ref={inputRef}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}

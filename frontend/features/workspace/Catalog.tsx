@@ -34,8 +34,8 @@ export default function Catalog() {
               specifications: {
                 'Category': p.category,
                 'Stock': `${p.stock_quantity} units`,
-                'Popularity': `${p.popularity_index}/5.0`,
-                'Return Rate': `${Math.round(p.return_rate * 100)}%`
+                'Popularity': `${(p.popularity_index / 20.0).toFixed(1)}/5.0`,
+                'Return Rate': `${p.return_rate.toFixed(2)}%`
               }
             }));
             setProducts(mapped);
@@ -60,7 +60,7 @@ export default function Catalog() {
   }, [searchQuery]);
 
   return (
-    <div className="glass-panel rounded-xl p-5 flex flex-col h-full min-h-[400px]">
+    <div className="glass-panel rounded-xl p-5 flex flex-col h-full min-h-0">
       
       {/* Title */}
       <div className="flex items-center space-x-2 border-b border-white/10 pb-3 mb-4">

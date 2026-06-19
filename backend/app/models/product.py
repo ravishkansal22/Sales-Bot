@@ -11,7 +11,7 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, Float, Integer, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -69,6 +69,13 @@ class Product(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    specifications: Mapped[list[ProductSpecification]] = relationship(
+        "ProductSpecification",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:

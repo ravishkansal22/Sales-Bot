@@ -29,11 +29,15 @@ from app.core.negotiation_scorer import NegotiationScorer
 from app.core.strategies.base import Strategy
 from app.core.strategies.registry import StrategyRegistry
 from app.schemas.chat import ConversationAnalysis
+from app.models.product import Product
+from app.models.customer import Customer
+from app.core.config_layer import NegotiationConfig
 from app.schemas.simulation import (
     DigitalTwinProfile,
     LLMStrategyOutput,
     SimulationOutput,
     SimulationRollout,
+    FinancialMetrics,
 )
 from app.services.llm.base import LLMProvider
 
@@ -65,6 +69,17 @@ Rules:
 - Keep discount_percent and bundle_value within the bounds stated in the prompt.
 - Your reasoning should be unique and insightful for each request.
 """
+
+
+def generate_concessions(category: str | None, strategy_name: str, product_name: str | None = None) -> list[str]:
+    if strategy_name != "bundle":
+        return []
+    
+    return [
+        "Extended 12-Month Support SLA Upgrade",
+        "Flexible Net-60 Payment Terms",
+        "Priority Express Delivery Logistics"
+    ]
 
 
 class SimulationEngine:
@@ -99,6 +114,74 @@ class SimulationEngine:
     # Public API
     # ------------------------------------------------------------------
 
+    def calculate_dynamic_ceiling(
+        self,
+        product: Product,
+        quantity: int,
+        history: list[dict[str, Any]] | None = None,
+        customer: Customer | None = None,
+        brand_loyalty: float = 0.5,
+    ) -> float:
+        """Calculate dynamic pricing ceiling incorporating segment, spend, volume, and stock."""
+        import math
+        from app.core.config_layer import NegotiationConfig
+
+        user_turns_count = sum(1 for h in history if h.get("role") == "user") if history else 0
+        
+        base_ceiling = NegotiationConfig.STAGE_CEILINGS.get(
+            user_turns_count, 
+            NegotiationConfig.STAGE_CEILINGS["default"]
+        )
+        
+        ceiling = base_ceiling
+
+        # 1. Volume allowance
+        if quantity > 1:
+            volume_allowance = min(
+                NegotiationConfig.VOLUME_MAX_ALLOWANCE, 
+                math.log10(quantity) * NegotiationConfig.VOLUME_COEFFICIENT
+            )
+            ceiling += volume_allowance
+
+        # 2. Customer segment modifiers
+        customer_segment = customer.customer_segment if customer else None
+        if customer_segment:
+            seg_key = customer_segment.upper()
+            modifier = NegotiationConfig.SEGMENT_MODIFIERS.get(
+                seg_key, 
+                NegotiationConfig.SEGMENT_MODIFIERS["default"]
+            )
+            ceiling += modifier
+
+        # 3. Customer loyalty modifier
+        if brand_loyalty > NegotiationConfig.LOYALTY_HIGH_THRESHOLD:
+            ceiling += NegotiationConfig.LOYALTY_HIGH_MODIFIER
+        elif brand_loyalty < NegotiationConfig.LOYALTY_LOW_THRESHOLD:
+            ceiling += NegotiationConfig.LOYALTY_LOW_MODIFIER
+
+        # 4. Historical spend modifier
+        total_spend = customer.total_spend if customer else 0.0
+        if total_spend > NegotiationConfig.SPEND_HIGH_THRESHOLD:
+            ceiling += NegotiationConfig.SPEND_HIGH_MODIFIER
+        elif total_spend > NegotiationConfig.SPEND_MED_THRESHOLD:
+            ceiling += NegotiationConfig.SPEND_MED_MODIFIER
+
+        # 5. Inventory pressure modifier
+        stock = product.stock_quantity if product else 50
+        if stock < NegotiationConfig.STOCK_CRITICAL:
+            ceiling = min(ceiling, NegotiationConfig.STOCK_CRITICAL_CEILING)
+        elif stock < NegotiationConfig.STOCK_LOW:
+            ceiling = min(ceiling, NegotiationConfig.STOCK_LOW_CEILING)
+        elif stock < NegotiationConfig.STOCK_MEDIUM:
+            ceiling = min(ceiling, NegotiationConfig.STOCK_MEDIUM_CEILING)
+        else:
+            ceiling += NegotiationConfig.STOCK_EXCESS_CEILING_MODIFIER
+
+        # 6. Absolute Floor Clamp
+        floor_discount = max(0.0, (1.0 - product.minimum_price / product.selling_price) * 100.0)
+        
+        return max(0.0, min(ceiling, floor_discount))
+
     async def simulate_all(
         self,
         twin: DigitalTwinProfile,
@@ -107,6 +190,8 @@ class SimulationEngine:
         cost_basis: float,
         product: Product | None = None,
         quantity: int = 1,
+        history: list[dict[str, Any]] | None = None,
+        customer: Customer | None = None,
     ) -> list[SimulationOutput]:
         """Run all registered strategies with multi-rollout simulations.
 
@@ -128,6 +213,10 @@ class SimulationEngine:
             Optional resolved Product ORM model.
         quantity:
             Quantity of products being negotiated.
+        history:
+            Conversation turn history.
+        customer:
+            Resolved Customer profile record.
 
         Returns
         -------
@@ -143,7 +232,7 @@ class SimulationEngine:
 
         # Launch all strategies concurrently.
         tasks = [
-            self._simulate_strategy(strategy, twin, analysis, deal_value, cost_basis, product, quantity)
+            self._simulate_strategy(strategy, twin, analysis, deal_value, cost_basis, product, quantity, history, customer)
             for strategy in strategies
         ]
         results: list[SimulationOutput] = await asyncio.gather(*tasks)
@@ -162,6 +251,8 @@ class SimulationEngine:
         cost_basis: float,
         product: Product | None = None,
         quantity: int = 1,
+        history: list[dict[str, Any]] | None = None,
+        customer: Customer | None = None,
     ) -> SimulationOutput:
         """Simulate a single strategy with ``rollout_count`` rollouts.
 
@@ -193,12 +284,14 @@ class SimulationEngine:
         constraints = strategy.get_constraints()
         if product is not None:
             constraints = dict(constraints)  # Avoid mutating shared class constraints
-            stock = product.stock_quantity
-            # Low stock pressure: limit discounts
-            if stock < 20:
-                constraints["max_discount_percent"] = min(constraints.get("max_discount_percent", 100.0), 10.0)
-            elif stock < 100:
-                constraints["max_discount_percent"] = min(constraints.get("max_discount_percent", 100.0), 20.0)
+            dynamic_ceiling = self.calculate_dynamic_ceiling(
+                product=product,
+                quantity=quantity,
+                history=history,
+                customer=customer,
+                brand_loyalty=twin.brand_loyalty if hasattr(twin, "brand_loyalty") else 0.5
+            )
+            constraints["max_discount_percent"] = min(constraints.get("max_discount_percent", 100.0), dynamic_ceiling)
 
         clamped_outputs: list[LLMStrategyOutput] = [
             self._clamp_output(output, constraints, deal_value)
@@ -336,6 +429,7 @@ class SimulationEngine:
                 6,
             ),
             average_expected_value=round(avg_ev, 2),
+            concessions=generate_concessions(product.category if product else None, strategy.name, product.name if product else None)
         )
 
     # ------------------------------------------------------------------
@@ -457,7 +551,7 @@ class SimulationEngine:
         max_bund = constraints.get("max_bundle_value", float("inf"))
 
         # Dynamic cap: bundle cost should never exceed 25% of deal value.
-        effective_max_bund = min(max_bund, deal_value * 0.25)
+        effective_max_bund = min(max_bund, deal_value * NegotiationConfig.MAX_BUNDLE_DEAL_VALUE_RATIO)
 
         clamped_discount = max(min_disc, min(output.discount_percent, max_disc))
         clamped_bundle = max(min_bund, min(output.bundle_value, effective_max_bund))

@@ -104,6 +104,13 @@ try:
 except ImportError:
     logger.warning("app.api.catalog router not found – skipping mount")
 
+try:
+    from app.api.procurement import router as procurement_router
+
+    app.include_router(procurement_router)
+except ImportError:
+    logger.warning("app.api.procurement router not found – skipping mount")
+
 
 # ---------------------------------------------------------------------------
 # Root endpoint

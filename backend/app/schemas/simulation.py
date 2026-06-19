@@ -219,6 +219,10 @@ class SimulationOutput(BaseModel):
     average_expected_value: float = Field(
         ..., description="Mean expected value / revenue"
     )
+    concessions: list[str] = Field(
+        default_factory=list,
+        description="Value-add concessions bundled with this strategy"
+    )
 
 
 class FinancialMetrics(BaseModel):
@@ -288,6 +292,10 @@ class OptimizerResult(BaseModel):
     all_rankings: list[dict[str, Any]] = Field(
         ..., description="Full ranked list of all strategies"
     )
+    concessions: list[str] = Field(
+        default_factory=list,
+        description="Value-add concessions of the winning strategy"
+    )
 
 
 class SimulateRequest(BaseModel):
@@ -313,19 +321,15 @@ class SimulateRequest(BaseModel):
     )
 
 class SimulateResponse(BaseModel):
-    """Response payload from the standalone simulation endpoint.
-
-    Attributes:
-        digital_twin: Customer's behavioural profile.
-        analysis: Conversation analysis of the input message.
-        simulations: All strategy simulation outputs.
-        winner: The optimizer's selected best strategy.
-    """
+    """Response payload from the standalone simulation endpoint."""
 
     digital_twin: DigitalTwinProfile
     analysis: ConversationAnalysis  # Resolved at runtime via model_rebuild
     simulations: list[SimulationOutput]
     winner: OptimizerResult
+    inventory_status: str | None = Field(default=None, description="Inventory state")
+    near_minimum_price: bool = Field(default=False, description="Near min price floor")
+    comparison_results: dict[str, Any] | None = Field(default=None, description="Comparison data if query is a comparison")
 
 
 # Deferred import to avoid circular dependency — rebuild model after

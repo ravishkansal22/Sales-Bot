@@ -12,6 +12,9 @@ from app.models.customer import Customer, DigitalTwinSnapshot
 from app.models.simulation import SimulationResult
 from app.models.product import Product
 from app.models.order import Order
+from app.models.negotiation_context import NegotiationContext
+from app.models.product_specification import ProductSpecification
+from app.models.locked_deal import LockedDeal
 
 __all__ = [
     "Conversation",
@@ -20,4 +23,7 @@ __all__ = [
     "SimulationResult",
     "Product",
     "Order",
+    "NegotiationContext",
+    "ProductSpecification",
+    "LockedDeal",
 ]

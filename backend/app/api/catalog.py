@@ -22,8 +22,10 @@ from app.services.customer_profile_builder import CustomerProfileBuilder
 from app.services.llm_service import get_llm_provider
 from app.services.product_resolver import ProductResolver
 from app.services.product_service import ProductService
+from app.services.customer_service import CustomerService
 
 router = APIRouter(prefix="/api/v1", tags=["Catalog"])
+
 
 
 @router.get("/products", response_model=list[ProductSchema])
@@ -151,13 +153,7 @@ async def get_customer(
 
 async def _resolve_customer(db: AsyncSession, id_str: str) -> Customer | None:
     """Helper to resolve a customer from UUID or external customer ID string."""
-    try:
-        cust_uuid = uuid.UUID(id_str)
-        return await db.get(Customer, cust_uuid)
-    except ValueError:
-        stmt = select(Customer).where(Customer.external_customer_id == id_str)
-        result = await db.execute(stmt)
-        return result.scalars().first()
+    return await CustomerService.resolve_customer(db, id_str)
 
 
 @router.get("/customers/{id}/twin")
@@ -267,15 +263,44 @@ async def get_customer_messages(
     res = await db.execute(stmt)
     turns = res.scalars().all()
 
-    return [
-        {
-            "id": t.id,
+    result_list = []
+    for t in turns:
+        msg_data = {
+            "id": str(t.id),
             "sender": "customer" if t.role == "user" else "company",
             "text": t.message,
             "timestamp": t.created_at.strftime("%I:%M %p") if t.created_at else "",
         }
-        for t in turns
-    ]
+        
+        # Check if this is a product discovery turn with recommendations
+        if t.analysis and "recommended_products" in t.analysis:
+            prod_ids = t.analysis["recommended_products"]
+            recommended_prods = []
+            for p_id in prod_ids:
+                try:
+                    p_uuid = uuid.UUID(p_id)
+                    p = await ProductService.get_product_by_id(db, p_uuid)
+                except ValueError:
+                    p = await ProductService.get_product_by_external_id(db, p_id)
+                if p:
+                    recommended_prods.append({
+                        "id": p.external_product_id or str(p.id),
+                        "name": p.name,
+                        "description": p.description or "B2B catalog product under negotiation terms.",
+                        "price": p.selling_price,
+                        "category": p.category,
+                        "specifications": {
+                            "Category": p.category,
+                            "Stock": f"{p.stock_quantity} units",
+                            "Popularity": f"{round(p.popularity_index / 20.0, 1)}/5.0",
+                            "Return Rate": f"{round(p.return_rate, 2)}%"
+                        }
+                    })
+            msg_data["recommended_products"] = recommended_prods
+            msg_data["intent_type"] = "product_discovery"
+        result_list.append(msg_data)
+
+    return result_list
 
 
 @router.get("/customers/{id}/timeline")

@@ -70,23 +70,51 @@ class ProductResolver:
 
         if words:
             query_str = " ".join(words)
-            results = await ProductService.search_products(db, query_str, limit=30)
+            results = await ProductService.search_products(db, query_str, limit=50)
 
             if results:
-                # Rank results using difflib sequence matching
+                # Rank results using the custom scoring formula
                 def score_match(prod: Product) -> float:
+                    # Fuzzy similarity on name and description
                     name_score = difflib.SequenceMatcher(None, query_str, prod.name.lower()).ratio()
+                    desc_score = 0.0
+                    if prod.description:
+                        # Check sub-sequence or exact word matching in description
+                        desc_lower = prod.description.lower()
+                        matching_words = [w for w in words if w in desc_lower]
+                        if words:
+                            desc_score = len(matching_words) / len(words)
+                    fuzzy_similarity = max(name_score, desc_score)
+
+                    # Category match
                     cat_score = difflib.SequenceMatcher(None, query_str, prod.category.lower()).ratio()
-                    return max(name_score, cat_score)
+                    cat_words = set(prod.category.lower().split())
+                    query_words = set(words)
+                    if cat_words.intersection(query_words):
+                        cat_score = max(cat_score, 1.0)
+                    category_match = cat_score
+
+                    # Popularity index (0-5.0 range, default 0)
+                    pop_val = getattr(prod, "popularity_index", 0.0) or 0.0
+                    popularity_index = min(5.0, max(0.0, float(pop_val)))
+                    normalized_popularity = popularity_index / 5.0
+
+                    # 0.5 * fuzzy_similarity + 0.3 * category_match + 0.2 * popularity_index
+                    return (
+                        0.5 * fuzzy_similarity +
+                        0.3 * category_match +
+                        0.2 * normalized_popularity
+                    )
 
                 # Sort descending by match score
                 scored_results = [(prod, score_match(prod)) for prod in results]
-                # Filter out poor matches (score <= 0.12)
-                valid_results = [p for p, score in scored_results if score > 0.12]
+                # Filter out poor matches
+                valid_results = [p for p, score in scored_results if score > 0.05]
                 
                 if valid_results:
+                    # Sort by the score_match return value
                     valid_results.sort(key=score_match, reverse=True)
-                    return valid_results[:5]
+                    return valid_results[:10]
 
         # 4. Fallback to LLM extraction if deterministic matching failed and LLM is configured
         if self._llm:
@@ -111,7 +139,7 @@ class ProductResolver:
 
                 if extraction.is_product_related and extraction.query.strip():
                     llm_query = extraction.query.strip()
-                    llm_results = await ProductService.search_products(db, llm_query, limit=5)
+                    llm_results = await ProductService.search_products(db, llm_query, limit=10)
                     if llm_results:
                         return llm_results
             except Exception as e:

@@ -6,12 +6,12 @@ import { SimulationOutput, OptimizerResult, OptimizationMode, DigitalTwinProfile
 export function mapBackendSimulations(backendSims: any[]): SimulationOutput[] {
   return backendSims.map(s => {
     const offerType = s.offer_type || 'discount';
-    // Map offer type to mock id structure s_xxxx
-    const id = `s_${offerType}`;
+    // Map strategy name to mock id structure s_xxxx
+    const id = s.strategy_name ? (s.strategy_name.startsWith('s_') ? s.strategy_name : `s_${s.strategy_name}`) : `s_${offerType}`;
     
     return {
       id,
-      name: s.strategy_name || s.strategy_name || 'Strategy',
+      name: s.strategy_name || 'Strategy',
       description: s.reasoning || 'No details provided.',
       closeProbability: s.average_close_probability ?? 0.5,
       riskScore: Math.round((s.average_risk_score ?? 0.2) * 100),
@@ -19,6 +19,8 @@ export function mapBackendSimulations(backendSims: any[]): SimulationOutput[] {
       expectedValue: s.average_expected_value ?? 0.0,
       marginRetention: s.average_gross_margin_retention ?? 1.0,
       confidenceScore: s.confidence_score ?? 0.8,
+      discountPercent: s.discount_percent ?? 0.0,
+      concessions: s.concessions || [],
       rollouts: (s.rollouts || []).map((r: any, idx: number) => {
         let risk: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
         if (r.risk_score > 0.6) risk = 'HIGH';

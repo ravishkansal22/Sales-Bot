@@ -30,7 +30,9 @@ export interface SimulationOutput {
   expectedValue: number;    // In dollars
   marginRetention: number;  // 0.0 - 1.0
   confidenceScore: number;  // 0.0 - 1.0
+  discountPercent?: number;  // 0.0 - 100.0
   rollouts: SimulationRollout[];
+  concessions?: string[];
 }
 
 export interface OptimizerResult {
@@ -46,6 +48,9 @@ export interface Message {
   sender: 'customer' | 'company';
   text: string;
   timestamp: string;
+  recommended_products?: Product[];
+  intent_type?: string;
+  comparison_results?: any;
 }
 
 export interface TimelineEvent {

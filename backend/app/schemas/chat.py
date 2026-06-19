@@ -7,6 +7,7 @@ about each customer message.
 
 from __future__ import annotations
 
+from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -69,6 +70,7 @@ class ChatRequest(BaseModel):
     quantity: int = Field(default=1, ge=1, description="Quantity of products being negotiated")
 
 
+from app.schemas.product import ProductSchema
 from app.schemas.simulation import (  # noqa: E402
     DigitalTwinProfile,
     OptimizerResult,
@@ -77,19 +79,7 @@ from app.schemas.simulation import (  # noqa: E402
 
 
 class ChatResponse(BaseModel):
-    """Response payload from the chat endpoint.
-
-    Bundles together the digital twin profile, all simulation outputs,
-    the optimizer's winning pick, the customer-facing response, and
-    the internal chain-of-thought reasoning.
-
-    Attributes:
-        digital_twin: Behavioural profile of the customer.
-        simulations: Full list of strategy simulations.
-        winner: The optimizer's selected best strategy.
-        response: The generated customer-facing reply.
-        internal_reasoning: Internal chain-of-thought for auditing.
-    """
+    """Response payload from the chat endpoint."""
 
     digital_twin: DigitalTwinProfile
     simulations: list[SimulationOutput]
@@ -99,3 +89,17 @@ class ChatResponse(BaseModel):
         ...,
         description="Internal chain-of-thought reasoning for auditing",
     )
+    intent_type: str = Field(default="negotiation", description="Intent type")
+    recommended_products: list[ProductSchema] | None = Field(default=None, description="Recommended products list")
+    inventory_status: str | None = Field(default=None, description="Inventory state")
+    near_minimum_price: bool = Field(default=False, description="Near min price floor")
+    comparison_results: dict[str, Any] | None = Field(default=None, description="Comparison data if query is a comparison")
+
+
+class SelectProductRequest(BaseModel):
+    customer_id: str = Field(..., description="UUID or external ID of the customer")
+    product_id: str = Field(..., description="UUID or external ID of the product")
+    quantity: int = Field(default=1, ge=1, description="Quantity of products")
+
+
+ChatResponse.model_rebuild()
