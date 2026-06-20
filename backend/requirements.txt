@@ -1,0 +1,54 @@
+# FastAPI
+fastapi
+uvicorn[standard]
+
+# Database
+sqlalchemy
+asyncpg
+alembic
+psycopg2-binary
+
+# Validation & Settings
+pydantic
+pydantic-settings
+email-validator
+
+# LLM Providers
+google-generativeai
+openai
+
+# Redis
+redis
+
+# HTTP Clients
+httpx
+aiohttp
+
+# Security & Auth
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+
+# Environment Variables
+python-dotenv
+
+# Logging
+loguru
+
+# PDF Generation
+reportlab
+
+# Utilities
+orjson
+tenacity
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+
+# Development Tools
+black
+isort
+mypy
+ruff
