@@ -136,6 +136,159 @@ class NegotiationConfigMeta(type):
     def SCORING_SCALE_FACTOR(cls) -> float:
         return settings.SCORING_SCALE_FACTOR
 
+    @property
+    def STRATEGY_REPETITION_FACTOR(cls) -> float:
+        return 0.15
+
+    @property
+    def BUNDLE_REPETITION_FACTOR(cls) -> float:
+        return 0.20
+
+    @property
+    def IMMEDIATE_PREDECESSOR_MULTIPLIER(cls) -> float:
+        return 1.5
+
+    @property
+    def VOLUME_BOOST_COEFFICIENT(cls) -> float:
+        return 0.08
+
+    @property
+    def PERSISTENCE_DISCOUNT_BOOST_FACTOR(cls) -> float:
+        return 0.05
+
+    @property
+    def PERSISTENCE_BUNDLE_BOOST_FACTOR(cls) -> float:
+        return 0.03
+
+    @property
+    def PERSISTENCE_DEFAULT_BOOST_FACTOR(cls) -> float:
+        return 0.02
+
+    @property
+    def MIN_DISCOUNT_PERCENT(cls) -> float:
+        return getattr(settings, "MIN_DISCOUNT_PERCENT", 5.0)
+
+    @property
+    def MAX_DISCOUNT_PERCENT(cls) -> float:
+        return getattr(settings, "MAX_DISCOUNT_PERCENT", 30.0)
+
+
+    @property
+    def PERSISTENCE_DISCOUNT_STEP(cls) -> float:
+        return getattr(settings, "PERSISTENCE_DISCOUNT_STEP", 3.0)
+
+    @property
+    def QUANTITY_DISCOUNT_STEP_COEFFICIENT(cls) -> float:
+        return getattr(settings, "QUANTITY_DISCOUNT_STEP_COEFFICIENT", 1.5)
+
+    @property
+    def COMPETITOR_PRESSURE_DISCOUNT_STEP(cls) -> float:
+        return getattr(settings, "COMPETITOR_PRESSURE_DISCOUNT_STEP", 3.0)
+
+    @property
+    def WALKAWAY_RISK_DISCOUNT_STEP(cls) -> float:
+        return getattr(settings, "WALKAWAY_RISK_DISCOUNT_STEP", 4.0)
+
+    @property
+    def VOLUME_BOOST_DISCOUNT_SCALE(cls) -> float:
+        return getattr(settings, "VOLUME_BOOST_DISCOUNT_SCALE", 1.5)
+
+    @property
+    def VOLUME_BOOST_PERSONALIZED_SCALE(cls) -> float:
+        return getattr(settings, "VOLUME_BOOST_PERSONALIZED_SCALE", 1.0)
+
+    @property
+    def VOLUME_BOOST_BUNDLE_SCALE(cls) -> float:
+        return getattr(settings, "VOLUME_BOOST_BUNDLE_SCALE", 0.5)
+
+    @property
+    def VOLUME_BOOST_HARDLINE_SCALE(cls) -> float:
+        return getattr(settings, "VOLUME_BOOST_HARDLINE_SCALE", 1.5)
+
+    @property
+    def PRICE_OBJECTION_DISCOUNT_BOOST(cls) -> float:
+        return getattr(settings, "PRICE_OBJECTION_DISCOUNT_BOOST", 0.40)
+
+    @property
+    def PRICE_OBJECTION_PERSONALIZED_BOOST(cls) -> float:
+        return getattr(settings, "PRICE_OBJECTION_PERSONALIZED_BOOST", 0.25)
+
+    @property
+    def PRICE_OBJECTION_BUNDLE_PENALTY(cls) -> float:
+        return getattr(settings, "PRICE_OBJECTION_BUNDLE_PENALTY", 0.20)
+
+    @property
+    def PRICE_OBJECTION_HARDLINE_PENALTY(cls) -> float:
+        return getattr(settings, "PRICE_OBJECTION_HARDLINE_PENALTY", 0.50)
+
+    @property
+    def COMPETITOR_PRESSURE_DISCOUNT_BOOST(cls) -> float:
+        return getattr(settings, "COMPETITOR_PRESSURE_DISCOUNT_BOOST", 0.30)
+
+    @property
+    def COMPETITOR_PRESSURE_PERSONALIZED_BOOST(cls) -> float:
+        return getattr(settings, "COMPETITOR_PRESSURE_PERSONALIZED_BOOST", 0.20)
+
+    @property
+    def COMPETITOR_PRESSURE_BUNDLE_PENALTY(cls) -> float:
+        return getattr(settings, "COMPETITOR_PRESSURE_BUNDLE_PENALTY", 0.15)
+
+    @property
+    def COMPETITOR_PRESSURE_HARDLINE_PENALTY(cls) -> float:
+        return getattr(settings, "COMPETITOR_PRESSURE_HARDLINE_PENALTY", 0.30)
+
+    @property
+    def WALKAWAY_RISK_DISCOUNT_BOOST(cls) -> float:
+        return getattr(settings, "WALKAWAY_RISK_DISCOUNT_BOOST", 0.50)
+
+    @property
+    def WALKAWAY_RISK_PERSONALIZED_BOOST(cls) -> float:
+        return getattr(settings, "WALKAWAY_RISK_PERSONALIZED_BOOST", 0.20)
+
+    @property
+    def WALKAWAY_RISK_BUNDLE_PENALTY(cls) -> float:
+        return getattr(settings, "WALKAWAY_RISK_BUNDLE_PENALTY", 0.10)
+
+    @property
+    def WALKAWAY_RISK_HARDLINE_PENALTY(cls) -> float:
+        return getattr(settings, "WALKAWAY_RISK_HARDLINE_PENALTY", 0.40)
+
+    @property
+    def PERSISTENCE_PRESSURE_DISCOUNT_BOOST(cls) -> float:
+        return getattr(settings, "PERSISTENCE_PRESSURE_DISCOUNT_BOOST", 0.35)
+
+    @property
+    def PERSISTENCE_PRESSURE_PERSONALIZED_BOOST(cls) -> float:
+        return getattr(settings, "PERSISTENCE_PRESSURE_PERSONALIZED_BOOST", 0.15)
+
+    @property
+    def PERSISTENCE_PRESSURE_BUNDLE_PENALTY(cls) -> float:
+        return getattr(settings, "PERSISTENCE_PRESSURE_BUNDLE_PENALTY", 0.20)
+
+    @property
+    def PERSISTENCE_PRESSURE_HARDLINE_PENALTY(cls) -> float:
+        return getattr(settings, "PERSISTENCE_PRESSURE_HARDLINE_PENALTY", 0.40)
+
+    @property
+    def HARDLINE_FATIGUE_BASE(cls) -> float:
+        return getattr(settings, "HARDLINE_FATIGUE_BASE", 0.35)
+
+    @property
+    def HARDLINE_FATIGUE_PERSISTENCE_MULT(cls) -> float:
+        return getattr(settings, "HARDLINE_FATIGUE_PERSISTENCE_MULT", 0.25)
+
+    @property
+    def HARDLINE_FATIGUE_COMPETITOR_MULT(cls) -> float:
+        return getattr(settings, "HARDLINE_FATIGUE_COMPETITOR_MULT", 0.40)
+
+    @property
+    def HARDLINE_FATIGUE_QUANTITY_MULT(cls) -> float:
+        return getattr(settings, "HARDLINE_FATIGUE_QUANTITY_MULT", 0.20)
+
+    @property
+    def PERSONALIZED_REPETITION_FACTOR(cls) -> float:
+        return getattr(settings, "PERSONALIZED_REPETITION_FACTOR", 0.15)
+
 
 class NegotiationConfig(metaclass=NegotiationConfigMeta):
     """Centralised configuration layer for B2B negotiation logic.

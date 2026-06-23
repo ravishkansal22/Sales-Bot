@@ -1,0 +1,32 @@
+[2026-06-21 17:22:31] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 17:22:31] RESULT: FAILED - {'cache_hits': 0, 'cache_misses': 0}
+[2026-06-21 17:23:42] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 17:23:43] RESULT: FAILED - {'cache_hits': 0, 'cache_misses': 0}
+[2026-06-21 17:25:44] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 17:25:45] RESULT: FAILED - {'cache_hits': 0, 'cache_misses': 0}
+[2026-06-21 17:27:33] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 17:27:34] RESULT: FAILED - {'cache_hits': 0, 'cache_misses': 2}
+[2026-06-21 17:29:15] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 17:29:16] RESULT: FAILED - {'cache_hits': 2, 'cache_misses': 0}
+[2026-06-21 17:29:37] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 17:29:38] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 18:09:21] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 18:09:21] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 18:12:29] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 18:12:30] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 18:12:57] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 18:12:58] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 18:56:25] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 18:56:25] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 18:57:46] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 18:57:46] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 18:59:20] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 18:59:20] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 19:58:43] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 19:58:43] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 19:59:08] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 19:59:09] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 22:48:35] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 22:48:36] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}
+[2026-06-21 22:50:19] Starting Scenario 8: Repeated product spec questions -> Cache hits.
+[2026-06-21 22:50:20] RESULT: PASSED - {'cache_hits': 1, 'cache_misses': 1}

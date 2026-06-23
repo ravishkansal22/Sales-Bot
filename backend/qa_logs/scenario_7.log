@@ -1,0 +1,32 @@
+[2026-06-21 17:22:29] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 17:22:31] RESULT: FAILED - {'circuit_tripped': False, 'breaker_open_count': 0, 'recovered_response': None}
+[2026-06-21 17:23:41] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 17:23:42] RESULT: FAILED - {'circuit_tripped': False, 'breaker_open_count': 0, 'recovered_response': None}
+[2026-06-21 17:25:42] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 17:25:44] RESULT: FAILED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': None}
+[2026-06-21 17:27:31] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 17:27:33] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 17:29:13] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 17:29:15] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 17:29:35] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 17:29:37] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 18:09:19] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 18:09:21] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 18:12:28] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 18:12:29] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 18:12:55] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 18:12:57] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 18:56:24] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 18:56:25] RESULT: FAILED - {'circuit_tripped': False, 'breaker_open_count': 0, 'recovered_response': 'Our catalog pricing reflects the premium quality and structural durability of our products. While we are unable to lower the base price, we stand behind the outstanding value and full B2B warranty included with this purchase. We look forward to partnering with you.'}
+[2026-06-21 18:57:44] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 18:57:46] RESULT: FAILED - {'circuit_tripped': False, 'breaker_open_count': 0, 'recovered_response': 'Our catalog pricing reflects the premium quality and structural durability of our products. While we are unable to lower the base price, we stand behind the outstanding value and full B2B warranty included with this purchase. We look forward to partnering with you.'}
+[2026-06-21 18:59:18] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 18:59:20] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 19:58:41] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 19:58:43] RESULT: FAILED - {'circuit_tripped': False, 'breaker_open_count': 0, 'recovered_response': 'Our catalog pricing reflects the premium quality and structural durability of our products. While we are unable to lower the base price, we stand behind the outstanding value and full B2B warranty included with this purchase. We look forward to partnering with you.'}
+[2026-06-21 19:59:07] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 19:59:08] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 22:48:33] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 22:48:35] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}
+[2026-06-21 22:50:18] Starting Scenario 7: Groq repeated failures -> Circuit Breaker opens -> Ollama.
+[2026-06-21 22:50:19] RESULT: PASSED - {'circuit_tripped': True, 'breaker_open_count': 1, 'recovered_response': 'Groq recovered counteroffer'}

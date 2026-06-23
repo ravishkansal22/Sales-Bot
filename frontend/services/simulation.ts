@@ -46,7 +46,9 @@ export function mapBackendOptimizerResult(winner: any): OptimizerResult {
     optimizationMode: (winner.optimization_mode || 'balanced') as OptimizationMode,
     confidenceScore: winner.confidence_score ?? 0.8,
     winningFactors: winner.winning_factors || ['Highest expected value'],
-    optimizerReasoning: winner.optimizer_reasoning || 'Selected as the most balanced option based on simulated expected profit and risk.'
+    optimizerReasoning: winner.optimizer_reasoning || 'Selected as the most balanced option based on simulated expected profit and risk.',
+    currentDiscountPercent: winner.current_discount_percent !== undefined ? winner.current_discount_percent : winner.actual_offer_discount,
+    currentOfferPrice: winner.current_offer_price !== undefined ? winner.current_offer_price : winner.actual_offer_price
   };
 }
 

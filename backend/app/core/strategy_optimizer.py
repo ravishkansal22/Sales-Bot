@@ -6,6 +6,7 @@ All reasoning is generated from data — **no LLM, no AI**.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.core.negotiation_scorer import NegotiationScorer
@@ -15,6 +16,8 @@ from app.schemas.simulation import (
     OptimizerResult,
     SimulationOutput,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class StrategyOptimizer:
@@ -27,10 +30,15 @@ class StrategyOptimizer:
 
     @staticmethod
     def optimize(
-       simulations: list[SimulationOutput],
-       mode: OptimizationMode = OptimizationMode.BALANCED,
-       stock_quantity: int = 50,
-       history: list[dict[str, Any]] | None = None,
+        simulations: list[SimulationOutput],
+        mode: OptimizationMode = OptimizationMode.BALANCED,
+        stock_quantity: int = 50,
+        history: list[dict[str, Any]] | None = None,
+        has_pricing_request: bool = True,
+        context_json: dict[str, Any] | None = None,
+        dynamic_ceiling: float = 0.0,
+        list_price: float = 0.0,
+        requested_discount_percent: float = 0.0,
     ) -> OptimizerResult:
         """Rank strategies and return the winner.
 
@@ -45,6 +53,12 @@ class StrategyOptimizer:
             Current stock quantity of the product.
         history:
             Conversation turns history to evaluate repeated demands.
+        dynamic_ceiling:
+            The maximum ceiling for discounts based on business rules.
+        list_price:
+            The original selling price of the product under negotiation.
+        requested_discount_percent:
+            The discount percentage currently requested by the customer.
 
         Returns
         -------
@@ -56,9 +70,11 @@ class StrategyOptimizer:
         if not simulations:
             raise ValueError("Cannot optimise an empty list of simulations.")
 
-        # Determine repeated discount demands from history
+        # Determine repeated discount demands from history or context_json
         discount_demands = 0
-        if history:
+        if context_json:
+            discount_demands = context_json.get("customer_persistence", 0)
+        elif history:
             discount_demands = sum(
                 1 for h in history 
                 if h.get("role") == "user" 
@@ -88,6 +104,7 @@ class StrategyOptimizer:
                     sim,
                     confidence,
                     mode,
+                    context_json,
                 )
             )
 
@@ -97,6 +114,20 @@ class StrategyOptimizer:
                     optimizer_score += NegotiationConfig.REPEATED_DEMAND_DISCOUNT_PENALTY
                 elif sim.strategy_name == "bundle":
                     optimizer_score += NegotiationConfig.REPEATED_DEMAND_BUNDLE_BOOST
+
+            # Detailed simulation logging as requested by user
+            logger.info(
+                "Simulation log: strategy=%s, score=%.2f, discount=%.2f%%, bundle_items=%.2f, "
+                "quantity concessions=%s, close_probability=%.4f, revenue=%.2f, margin retention=%.4f",
+                sim.strategy_name,
+                optimizer_score,
+                sim.discount_percent,
+                sim.bundle_value,
+                sim.concessions,
+                sim.average_close_probability,
+                sim.average_expected_value,
+                sim.average_gross_margin_retention
+            )
 
             rankings.append({
                 "strategy_name": sim.strategy_name,
@@ -120,8 +151,6 @@ class StrategyOptimizer:
             reverse=True,
         )
 
-        winner: dict[str, Any] = rankings[0]
-
         # Determine inventory explanation dynamically based on stock levels
         if stock_quantity < NegotiationConfig.STOCK_CRITICAL:
             inventory_explanation = "Discount flexibility reduced due to critical inventory levels."
@@ -132,9 +161,51 @@ class StrategyOptimizer:
         else:
             inventory_explanation = "Standard discount flexibility applied under normal stock levels."
 
+        # Extract current customer requested discount
+        current_customer_requested_discount = 0.0
+        if context_json:
+            current_customer_requested_discount = context_json.get("current_customer_requested_discount", 0.0) or 0.0
+
+        if not has_pricing_request:
+            winning_factors = ["Initial State"]
+            optimizer_reasoning = "No pricing or discount request has been made yet. Initial B2B offering stands at list price."
+            
+            raw_optimizer_discount = 0.0
+            actual_offer_discount = 0.0
+            actual_offer_price = list_price
+
+            logger.info(
+                f"Requested discount: {requested_discount_percent}%\n"
+                f"Current customer requested discount: {current_customer_requested_discount}%\n\n"
+                f"Raw optimizer discount: {raw_optimizer_discount}%\n"
+                f"Dynamic ceiling: {dynamic_ceiling}%\n\n"
+                f"Actual customer-facing offer: {actual_offer_discount}%\n"
+                f"Price: ₹{actual_offer_price}\n\n"
+                f"Winner strategy: none"
+            )
+
+            return OptimizerResult(
+                winning_strategy="none",
+                score=1.0,
+                optimization_mode=mode,
+                optimizer_reasoning=optimizer_reasoning,
+                winning_factors=winning_factors,
+                risk_score=0.0,
+                confidence_score=1.0,
+                all_rankings=rankings,
+                inventory_explanation=inventory_explanation,
+                actual_offer_discount=actual_offer_discount,
+                actual_offer_price=actual_offer_price,
+                current_discount_percent=actual_offer_discount,
+                current_offer_price=actual_offer_price,
+            )
+
+        winner: dict[str, Any] = rankings[0]
+        winner_strategy = winner["strategy_name"]
+
         # Populate explainability variables
         for rank in rankings:
-            is_winner = rank["strategy_name"] == winner["strategy_name"]
+            is_winner = rank["strategy_name"] == winner_strategy
             
             # Retrieve the corresponding simulation for rollout fits
             sim = next(s for s in simulations if s.strategy_name == rank["strategy_name"])
@@ -176,8 +247,28 @@ class StrategyOptimizer:
             winner, rankings, winning_factors,
         )
 
+        winning_sim = next((s for s in simulations if s.strategy_name == winner_strategy), None)
+        raw_optimizer_discount = winning_sim.discount_percent if winning_sim else 0.0
+
+        effective_discount = raw_optimizer_discount
+        if current_customer_requested_discount > 0.0:
+            effective_discount = min(effective_discount, current_customer_requested_discount)
+        effective_discount = min(effective_discount, dynamic_ceiling)
+        actual_offer_discount = max(0.0, effective_discount)
+        actual_offer_price = list_price * (1.0 - actual_offer_discount / 100.0)
+
+        logger.info(
+            f"Requested discount: {requested_discount_percent}%\n"
+            f"Current customer requested discount: {current_customer_requested_discount}%\n\n"
+            f"Raw optimizer discount: {raw_optimizer_discount}%\n"
+            f"Dynamic ceiling: {dynamic_ceiling}%\n\n"
+            f"Actual customer-facing offer: {actual_offer_discount}%\n"
+            f"Price: ₹{actual_offer_price}\n\n"
+            f"Winner strategy: {winner_strategy}"
+        )
+
         return OptimizerResult(
-            winning_strategy=winner["strategy_name"],
+            winning_strategy=winner_strategy,
             score=winner["optimizer_score"],
             optimization_mode=mode,
             optimizer_reasoning=optimizer_reasoning,
@@ -186,6 +277,9 @@ class StrategyOptimizer:
             confidence_score=winner["confidence_score"],
             all_rankings=rankings,
             inventory_explanation=inventory_explanation,
+            actual_offer_discount=actual_offer_discount,
+            actual_offer_price=actual_offer_price,
+            current_discount_percent=actual_offer_discount,
         )
 
     # ------------------------------------------------------------------
@@ -196,27 +290,206 @@ class StrategyOptimizer:
         simulation: SimulationOutput,
         confidence: float,
         mode: OptimizationMode,
+        context_json: dict[str, Any] | None = None,
     ) -> float:
 
         if mode == OptimizationMode.MAX_PROFIT:
-            return simulation.average_expected_profit
+            base_score = simulation.average_expected_profit
+        elif mode == OptimizationMode.MAX_CLOSE_RATE:
+            base_score = simulation.average_close_probability
+        elif mode == OptimizationMode.MAX_MARGIN:
+            base_score = simulation.average_gross_margin_retention
+        else:
+            w = NegotiationConfig.SCORING_WEIGHTS
+            scale = NegotiationConfig.SCORING_SCALE_FACTOR
+            
+            # Normalize expected value to a [0, 1] scale: close_probability * gross_margin_retention
+            normalized_ev = simulation.average_close_probability * simulation.average_gross_margin_retention
+            
+            base_score = (
+                normalized_ev * scale * w["expected_value"]
+                + simulation.average_close_probability * scale * w["close_probability"]
+                + (1.0 - simulation.average_risk_score) * scale * w["risk_score"]
+                + confidence * scale * w["confidence"]
+            )
 
-        if mode == OptimizationMode.MAX_CLOSE_RATE:
-            return simulation.average_close_probability
+        # Apply progressive negotiation flexibility boost & repeated strategy penalty
+        if context_json:
+            persistence = context_json.get("customer_persistence", 0) or 0
+            quantity = context_json.get("mentioned_quantity", 1) or 1
+            competitor_pressure = context_json.get("competitor_pressure", False)
+            walkaway_risk = context_json.get("walkaway_risk", False)
+            price_objection = context_json.get("price_objection", False)
+            previous_strategies = context_json.get("previous_strategies", [])
 
-        if mode == OptimizationMode.MAX_MARGIN:
-            return simulation.average_gross_margin_retention
+            # Intermediate scoring trackers for diagnostics
+            qty_boost = 0.0
+            price_obj_boost = 0.0
+            comp_boost = 0.0
+            walkaway_boost = 0.0
+            persist_boost = 0.0
 
-        w = NegotiationConfig.SCORING_WEIGHTS
-        scale = NegotiationConfig.SCORING_SCALE_FACTOR
-        balanced_score = (
-            simulation.average_expected_value * w["expected_value"]
-            + simulation.average_close_probability * scale * w["close_probability"]
-            + (1.0 - simulation.average_risk_score) * scale * w["risk_score"]
-            + confidence * scale * w["confidence"]
-        )
+            qty_penalty = 0.0
+            price_obj_penalty = 0.0
+            comp_penalty = 0.0
+            walkaway_penalty = 0.0
+            repetition_penalty = 0.0
+            hardline_fatigue_penalty = 0.0
+            bundle_fatigue_penalty = 0.0
+            personalized_fatigue_penalty = 0.0
+            
+            # Volume concessions boost (square-root scaled, score-relative)
+            import math
+            if quantity > 1:
+                volume_factor = (math.sqrt(quantity) - 1.0) * NegotiationConfig.VOLUME_BOOST_COEFFICIENT
+                if simulation.strategy_name == "discount":
+                    qty_boost += base_score * volume_factor * NegotiationConfig.VOLUME_BOOST_DISCOUNT_SCALE
+                elif simulation.strategy_name == "personalized":
+                    qty_boost += base_score * volume_factor * NegotiationConfig.VOLUME_BOOST_PERSONALIZED_SCALE
+                elif simulation.strategy_name == "bundle":
+                    qty_boost += base_score * volume_factor * NegotiationConfig.VOLUME_BOOST_BUNDLE_SCALE
+                elif simulation.strategy_name == "hardline":
+                    qty_penalty += base_score * volume_factor * NegotiationConfig.VOLUME_BOOST_HARDLINE_SCALE
 
-        return balanced_score
+            # Persistence boost
+            if persistence >= 2:
+                # Strong pressure signals favor discount/personalized over bundle/hardline
+                if simulation.strategy_name == "discount":
+                    persist_boost += base_score * NegotiationConfig.PERSISTENCE_PRESSURE_DISCOUNT_BOOST
+                elif simulation.strategy_name == "personalized":
+                    persist_boost += base_score * NegotiationConfig.PERSISTENCE_PRESSURE_PERSONALIZED_BOOST
+                elif simulation.strategy_name == "bundle":
+                    price_obj_penalty += base_score * NegotiationConfig.PERSISTENCE_PRESSURE_BUNDLE_PENALTY
+                elif simulation.strategy_name == "hardline":
+                    price_obj_penalty += base_score * NegotiationConfig.PERSISTENCE_PRESSURE_HARDLINE_PENALTY
+            elif persistence > 0:
+                if simulation.strategy_name == "discount":
+                    persist_boost += base_score * (persistence * NegotiationConfig.PERSISTENCE_DISCOUNT_BOOST_FACTOR)
+                elif simulation.strategy_name == "bundle":
+                    persist_boost += base_score * (persistence * NegotiationConfig.PERSISTENCE_BUNDLE_BOOST_FACTOR)
+                elif simulation.strategy_name == "personalized":
+                    persist_boost += base_score * 0.05
+
+            # Competitor pressure
+            if competitor_pressure:
+                if simulation.strategy_name == "discount":
+                    comp_boost += base_score * NegotiationConfig.COMPETITOR_PRESSURE_DISCOUNT_BOOST
+                elif simulation.strategy_name == "personalized":
+                    comp_boost += base_score * NegotiationConfig.COMPETITOR_PRESSURE_PERSONALIZED_BOOST
+                elif simulation.strategy_name == "bundle":
+                    comp_penalty += base_score * NegotiationConfig.COMPETITOR_PRESSURE_BUNDLE_PENALTY
+                elif simulation.strategy_name == "hardline":
+                    comp_penalty += base_score * NegotiationConfig.COMPETITOR_PRESSURE_HARDLINE_PENALTY
+
+            # Walkaway risk
+            if walkaway_risk:
+                if simulation.strategy_name == "discount":
+                    walkaway_boost += base_score * NegotiationConfig.WALKAWAY_RISK_DISCOUNT_BOOST
+                elif simulation.strategy_name == "personalized":
+                    walkaway_boost += base_score * NegotiationConfig.WALKAWAY_RISK_PERSONALIZED_BOOST
+                elif simulation.strategy_name == "bundle":
+                    walkaway_penalty += base_score * NegotiationConfig.WALKAWAY_RISK_BUNDLE_PENALTY
+                elif simulation.strategy_name == "hardline":
+                    walkaway_penalty += base_score * NegotiationConfig.WALKAWAY_RISK_HARDLINE_PENALTY
+
+            # Price objection
+            if price_objection:
+                if simulation.strategy_name == "discount":
+                    price_obj_boost += base_score * NegotiationConfig.PRICE_OBJECTION_DISCOUNT_BOOST
+                elif simulation.strategy_name == "personalized":
+                    price_obj_boost += base_score * NegotiationConfig.PRICE_OBJECTION_PERSONALIZED_BOOST
+                elif simulation.strategy_name == "bundle":
+                    price_obj_penalty += base_score * NegotiationConfig.PRICE_OBJECTION_BUNDLE_PENALTY
+                elif simulation.strategy_name == "hardline":
+                    price_obj_penalty += base_score * NegotiationConfig.PRICE_OBJECTION_HARDLINE_PENALTY
+
+            # Repeated strategy penalties
+            if previous_strategies:
+                repetition_factor = NegotiationConfig.STRATEGY_REPETITION_FACTOR
+                occurrence_count = previous_strategies.count(simulation.strategy_name)
+                if occurrence_count > 0:
+                    factor_multiplier = NegotiationConfig.IMMEDIATE_PREDECESSOR_MULTIPLIER if previous_strategies[-1] == simulation.strategy_name else 1.0
+                    persistence_mult = 1.0 + (persistence * 0.1)
+                    repetition_penalty += base_score * repetition_factor * occurrence_count * factor_multiplier * persistence_mult
+
+            # Repeated bundle exposures penalty (progressive exhaustion)
+            if simulation.strategy_name == "bundle":
+                bundle_offer_count = context_json.get("bundle_offer_count", 0) or 0
+                bundle_factor = bundle_offer_count
+                if persistence > 0:
+                    bundle_factor += persistence * 1.0
+                if bundle_factor > 0:
+                    bundle_fatigue_penalty += (
+                        base_score
+                        * NegotiationConfig.BUNDLE_REPETITION_FACTOR
+                        * (bundle_factor ** 1.8)
+                    )
+
+            # Personalized strategy fatigue penalties
+            if simulation.strategy_name == "personalized":
+                personalized_offer_count = context_json.get("personalized_offer_count", 0) or 0
+                personalized_factor = personalized_offer_count
+                if persistence > 0:
+                    personalized_factor += persistence * 0.5
+                if personalized_factor > 0:
+                    personalized_fatigue_penalty += (
+                        base_score
+                        * NegotiationConfig.PERSONALIZED_REPETITION_FACTOR
+                        * (personalized_factor ** 1.5)
+                    )
+
+            # Hardline fatigue penalties
+            if simulation.strategy_name == "hardline":
+                hardline_count = previous_strategies.count("hardline")
+                if hardline_count > 0 or persistence > 0 or competitor_pressure:
+                    fatigue_factor = NegotiationConfig.HARDLINE_FATIGUE_BASE * (hardline_count ** 1.3) if hardline_count > 0 else 0.0
+                    if persistence > 0:
+                        fatigue_factor += persistence * NegotiationConfig.HARDLINE_FATIGUE_PERSISTENCE_MULT
+                    if competitor_pressure:
+                        fatigue_factor += NegotiationConfig.HARDLINE_FATIGUE_COMPETITOR_MULT
+                    if quantity > 1:
+                        fatigue_factor += (math.sqrt(quantity) - 1.0) * NegotiationConfig.HARDLINE_FATIGUE_QUANTITY_MULT
+                    hardline_fatigue_penalty += base_score * fatigue_factor
+
+            # Combine all boosts and penalties
+            boost = qty_boost + price_obj_boost + comp_boost + walkaway_boost + persist_boost
+            penalty = qty_penalty + price_obj_penalty + comp_penalty + walkaway_penalty + repetition_penalty + hardline_fatigue_penalty + bundle_fatigue_penalty + personalized_fatigue_penalty
+
+            final_score = base_score + boost - penalty
+
+            # Detailed diagnostics logging for debugging optimizer rankings
+            last_discount_offered = context_json.get("last_discount_offered", 0.0) or 0.0
+            logger.info(
+                "Ranking Diagnostics:\n"
+                "  strategy_name: %s\n"
+                "  base_score: %.4f\n"
+                "  boost: %.4f\n"
+                "  penalty: %.4f\n"
+                "  final_score: %.4f\n"
+                "  quantity: %d\n"
+                "  customer_persistence: %d\n"
+                "  competitor_pressure: %s\n"
+                "  walkaway_risk: %s\n"
+                "  last_discount_offered: %.2f%%\n"
+                "  details: qty_boost=%.4f, price_obj_boost=%.4f, comp_boost=%.4f, walkaway_boost=%.4f, persist_boost=%.4f\n"
+                "  penalties: qty_penalty=%.4f, price_obj_penalty=%.4f, comp_penalty=%.4f, walkaway_penalty=%.4f, repetition_penalty=%.4f, bundle_fatigue=%.4f, hardline_fatigue=%.4f, personalized_fatigue=%.4f",
+                simulation.strategy_name,
+                base_score,
+                boost,
+                penalty,
+                final_score,
+                quantity,
+                persistence,
+                competitor_pressure,
+                walkaway_risk,
+                last_discount_offered,
+                qty_boost, price_obj_boost, comp_boost, walkaway_boost, persist_boost,
+                qty_penalty, price_obj_penalty, comp_penalty, walkaway_penalty, repetition_penalty, bundle_fatigue_penalty, hardline_fatigue_penalty, personalized_fatigue_penalty
+            )
+
+            base_score = final_score
+
+        return base_score
     
     @staticmethod
     def _identify_winning_factors(

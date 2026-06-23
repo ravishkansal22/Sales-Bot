@@ -7,7 +7,11 @@ state and is trivially thread-safe.
 
 from __future__ import annotations
 
+import logging
+import time
 from app.schemas.simulation import FinancialMetrics
+
+logger = logging.getLogger(__name__)
 
 
 class FinancialEvaluator:
@@ -36,6 +40,7 @@ class FinancialEvaluator:
 
         Supports dynamic product-derived overrides if product pricing is provided.
         """
+        t0 = time.perf_counter()
         # --- apply product overrides if provided -----------------------------
         if product_selling_price is not None:
             deal_value = product_selling_price * quantity
@@ -44,6 +49,8 @@ class FinancialEvaluator:
 
         # --- guard against degenerate inputs --------------------------------
         if deal_value <= 0:
+            elapsed = time.perf_counter() - t0
+            logger.info(f"FinancialEvaluator took {elapsed:.6f}s")
             return FinancialMetrics(
                 gross_margin_retention=0.0,
                 revenue_impact=0.0,
@@ -87,6 +94,8 @@ class FinancialEvaluator:
                 else:
                     minimum_price_closeness = 1.0
 
+        elapsed = time.perf_counter() - t0
+        logger.info(f"FinancialEvaluator took {elapsed:.6f}s")
         return FinancialMetrics(
             gross_margin_retention=round(gross_margin_retention, 6),
             revenue_impact=round(revenue_impact, 6),

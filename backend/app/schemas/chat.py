@@ -49,6 +49,20 @@ class ConversationAnalysis(BaseModel):
         ...,
         description="Sales funnel stage: awareness, consideration, decision, retention",
     )
+    intent_type: str = Field(
+        default="negotiation",
+        description="Intent type: negotiation, product_discovery, etc.",
+    )
+    sub_intent: str | None = Field(
+        default=None,
+        description="Optional sub-intent for fine-grained routing, e.g. competitor_leverage",
+    )
+    requested_discount: float = Field(
+        default=0.0,
+        description="Parsed requested discount percent",
+    )
+
+
 
 class ChatRequest(BaseModel):
     """Incoming payload for the chat endpoint.
@@ -68,6 +82,7 @@ class ChatRequest(BaseModel):
     cost_basis: float | None = Field(default=None, description="Cost basis. Inferred if product_id is provided.")
     product_id: str | None = Field(default=None, description="UUID or external ID of product under negotiation")
     quantity: int = Field(default=1, ge=1, description="Quantity of products being negotiated")
+    client_message_id: str | None = Field(default=None, description="Frontend-generated unique ID for message deduplication/merging")
 
 
 from app.schemas.product import ProductSchema
@@ -94,6 +109,8 @@ class ChatResponse(BaseModel):
     inventory_status: str | None = Field(default=None, description="Inventory state")
     near_minimum_price: bool = Field(default=False, description="Near min price floor")
     comparison_results: dict[str, Any] | None = Field(default=None, description="Comparison data if query is a comparison")
+    client_message_id: str | None = Field(default=None, description="Frontend-generated unique ID for message deduplication/merging")
+    assistant_message_id: str | None = Field(default=None, description="Backend-generated unique ID for assistant response")
 
 
 class SelectProductRequest(BaseModel):

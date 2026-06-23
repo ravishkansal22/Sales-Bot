@@ -41,6 +41,8 @@ export interface OptimizerResult {
   confidenceScore: number;
   winningFactors: string[];
   optimizerReasoning: string;
+  currentDiscountPercent?: number;
+  currentOfferPrice?: number;
 }
 
 export interface Message {
@@ -48,6 +50,10 @@ export interface Message {
   sender: 'customer' | 'company';
   text: string;
   timestamp: string;
+  created_at?: string;
+  role?: string;
+  status?: string;
+  client_message_id?: string;
   recommended_products?: Product[];
   intent_type?: string;
   comparison_results?: any;

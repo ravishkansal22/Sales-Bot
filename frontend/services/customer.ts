@@ -14,7 +14,8 @@ export async function submitMessage(
   text: string,
   customerId: string,
   productId: string,
-  quantity: number
+  quantity: number,
+  clientMessageId?: string
 ): Promise<any> {
   if (IS_DEMO_MODE) {
     return stateManager.processMessageEvent(text);
@@ -26,7 +27,8 @@ export async function submitMessage(
       message: text,
       customer_id: customerId,
       product_id: productId,
-      quantity
+      quantity,
+      client_message_id: clientMessageId || null
     })
   });
 }

@@ -1,0 +1,116 @@
+{
+    "passed": 13,
+    "failed": 0,
+    "provider_usage": {
+        "groq": 2,
+        "ollama": 15,
+        "deterministic": 6
+    },
+    "scenarios": {
+        "scenario_1": {
+            "passed": true,
+            "details": {
+                "status_code": 200,
+                "intent_type": "negotiation",
+                "has_recommendations": false,
+                "provider": "groq",
+                "fallback_used": false
+            }
+        },
+        "scenario_2": {
+            "passed": true,
+            "details": {
+                "status_code": 200,
+                "intent_type": "negotiation",
+                "has_recommendations": false,
+                "provider": "groq",
+                "fallback_used": false
+            }
+        },
+        "scenario_3": {
+            "passed": true,
+            "details": {
+                "status_code": 200,
+                "answer_extracted": "**[General Knowledge Estimate]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n*Disclaimer: This is an estimate based on search results and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?",
+                "provider": "groq"
+            }
+        },
+        "scenario_4": {
+            "passed": true,
+            "details": {
+                "status_code": 200,
+                "context_recovered": true
+            }
+        },
+        "scenario_5": {
+            "passed": true,
+            "details": {
+                "status_code": 200,
+                "provider": "ollama",
+                "fallback_used": true
+            }
+        },
+        "scenario_6": {
+            "passed": true,
+            "details": {
+                "status_code": 200,
+                "provider": "deterministic",
+                "fallback_used": true
+            }
+        },
+        "scenario_7": {
+            "passed": true,
+            "details": {
+                "circuit_tripped": true,
+                "breaker_open_count": 1,
+                "recovered_response": "Groq recovered counteroffer"
+            }
+        },
+        "scenario_8": {
+            "passed": true,
+            "details": {
+                "cache_hits": 1,
+                "cache_misses": 1
+            }
+        },
+        "scenario_9": {
+            "passed": true,
+            "details": {
+                "search_status": 200,
+                "negotiate_status": 200,
+                "lock_status": 200,
+                "checkout_status": 200
+            }
+        },
+        "scenario_10": {
+            "passed": true,
+            "details": {
+                "status_code": 200,
+                "response": "**[General Knowledge Estimate]** (Confidence: 0.70)\nBased on general category standards and product knowledge for Alpha Vacuum:\n- **Answer**: Stainless steel\n*Disclaimer: This is an estimate and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?"
+            }
+        },
+        "scenario_11": {
+            "passed": true,
+            "details": {
+                "status_code": 200,
+                "provider": "deterministic"
+            }
+        },
+        "scenario_12": {
+            "passed": true,
+            "details": {
+                "circuit_tripped": true,
+                "groq_attempted_after_trip": false
+            }
+        },
+        "scenario_13": {
+            "passed": true,
+            "details": {
+                "search_status": 200,
+                "negotiate_status": 200,
+                "lock_status": 200,
+                "checkout_status": 200
+            }
+        }
+    }
+}

@@ -98,7 +98,7 @@ export default function Catalog() {
           </div>
         ) : products.length > 0 ? (
           products.map((product) => {
-            const isSelected = activeProduct.id === product.id;
+            const isSelected = activeProduct ? activeProduct.id === product.id : false;
 
             return (
               <motion.div

@@ -32,7 +32,7 @@ interface NegotiationState {
   timelineEvents: TimelineEvent[];
   
   // Workspace integration extensions
-  activeProduct: Product;
+  activeProduct: Product | null;
   dealSummary: DealSummary | null;
   selectProduct: (productId: string) => Promise<void>;
   sendUserMessage: (text: string) => Promise<void>;
@@ -66,6 +66,61 @@ interface NegotiationState {
 
 const NegotiationContext = createContext<NegotiationState | undefined>(undefined);
 
+const mergeById = (existing: Message[], history: Message[]): Message[] => {
+  const mergedMap = new Map<string, Message>();
+
+  const addMessageToMap = (msg: Message) => {
+    mergedMap.set(msg.id, msg);
+    if (msg.client_message_id) {
+      mergedMap.set(msg.client_message_id, msg);
+    }
+  };
+
+  existing.forEach(msg => {
+    addMessageToMap({ ...msg });
+  });
+
+  history.forEach(msg => {
+    let existingMatch = mergedMap.get(msg.id);
+    if (!existingMatch && msg.client_message_id) {
+      existingMatch = mergedMap.get(msg.client_message_id);
+    }
+
+    if (existingMatch) {
+      const reconciled = {
+        ...existingMatch,
+        ...msg,
+        status: "sent"
+      };
+      if (existingMatch.id !== reconciled.id) {
+        mergedMap.delete(existingMatch.id);
+      }
+      if (existingMatch.client_message_id && existingMatch.client_message_id !== reconciled.client_message_id) {
+        mergedMap.delete(existingMatch.client_message_id);
+      }
+      addMessageToMap(reconciled);
+    } else {
+      addMessageToMap({
+        ...msg,
+        status: "sent"
+      });
+    }
+  });
+
+  const uniqueMessages = Array.from(new Set(mergedMap.values()));
+
+  return uniqueMessages.sort((a, b) => {
+    if (a.created_at && b.created_at) {
+      const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (diff !== 0) return diff;
+    }
+    if (a.sender !== b.sender) {
+      return a.sender === 'customer' ? -1 : 1;
+    }
+    return 0;
+  });
+};
+
 export function NegotiationProvider({ children }: { children: React.ReactNode }) {
   const [optimizationMode, setOptimizationMode] = useState<OptimizationMode>('balanced');
   const [selectedStrategyId, setSelectedStrategyId] = useState<string | null>('s_bundle');
@@ -77,7 +132,19 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   
   // Workspace states
-  const [activeProduct, setActiveProduct] = useState<Product>(mockProducts[1]); // default elite
+  const [activeProduct, setActiveProduct] = useState<Product | null>(() => {
+    if (IS_DEMO_MODE) {
+      return mockProducts[1];
+    }
+    return null;
+  });
+  const activeProductRef = useRef<Product | null>(activeProduct);
+  useEffect(() => {
+    activeProductRef.current = activeProduct;
+  }, [activeProduct]);
+
+  const prevModeRef = useRef<OptimizationMode>(optimizationMode);
+
   const [dealSummary, setDealSummary] = useState<DealSummary | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [typingStatus, setTypingStatus] = useState('');
@@ -106,17 +173,26 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
       }
     } catch (err) {
       console.error("Failed to load cart", err);
+      setCart({
+        items: [],
+        summary: { total_items: 0, catalog_total: 0, negotiated_total: 0, total_savings: 0, average_savings_pct: 0 }
+      });
     }
   }, [customerId]);
 
   const loadAllData = useCallback(async (
     currentMode: OptimizationMode,
     prodOverride: Product | null = null,
-    qtyOverride: number | null = null
+    qtyOverride: number | null = null,
+    overwrite: boolean = false
   ) => {
     try {
       setIsLoading(true);
-      const activeProd = prodOverride || activeProduct;
+      const activeProd = prodOverride || activeProductRef.current;
+      if (!activeProd) {
+        setIsLoading(false);
+        return;
+      }
       const activeQty = qtyOverride || quantity;
       
       if (IS_DEMO_MODE) {
@@ -137,7 +213,11 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
         setOptimizerResult(opt);
         setTwinProfile(twin);
         setTwinHistory(history);
-        setMessages(chatMsgs);
+        if (overwrite) {
+          setMessages(chatMsgs);
+        } else {
+          setMessages(prev => mergeById(prev, chatMsgs));
+        }
         setTimelineEvents(timeline);
         setDealSummary(summary);
         
@@ -145,22 +225,30 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
           setSelectedStrategyId(opt.winningStrategyId);
         }
       } else {
-        // Fetch from database backend
-        await loadCart();
-        const [sims, opt, twin, history, chatMsgs, timeline] = await Promise.all([
+        // Fetch from database backend concurrently
+        const [sims, opt, twin, history, chatMsgs, timeline, _cart] = await Promise.all([
           getSimulations(currentMode, customerId),
           getOptimizerResult(currentMode, customerId),
           getDigitalTwinProfile(customerId),
           getTwinHistory(customerId),
           getMessages(customerId),
-          getTimelineEvents(customerId)
+          getTimelineEvents(customerId),
+          loadCart()
         ]);
 
         setSimulations(sims);
         setOptimizerResult(opt);
         setTwinProfile(twin);
         setTwinHistory(history);
-        setMessages(chatMsgs);
+        const sortedMsgs = [...chatMsgs].sort((a, b) => {
+          if (!a.created_at || !b.created_at) return 0;
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+        if (overwrite) {
+          setMessages(sortedMsgs);
+        } else {
+          setMessages(prev => mergeById(prev, sortedMsgs));
+        }
         setTimelineEvents(timeline);
 
         let stock = 50;
@@ -171,8 +259,22 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
             stock = fullProd.stock_quantity;
             minPrice = fullProd.minimum_price;
           }
-        } catch (e) {
+        } catch (e: any) {
           console.error("Failed to fetch product details for inventory status", e);
+          if (e.message && (e.message.includes("404") || e.message.includes("Not Found"))) {
+            console.log("Stale active product detected (404), attempting graceful recovery...");
+            try {
+              const res = await apiFetch<any[]>('/products/search?q=');
+              if (res && res.length > 0) {
+                const firstProd = res[0];
+                const firstProdId = firstProd.external_product_id || firstProd.id;
+                selectProduct(firstProdId);
+                return;
+              }
+            } catch (err) {
+              console.error("Failed to recover stale product ID from search list", err);
+            }
+          }
         }
 
         let invStatus = "Available";
@@ -187,11 +289,17 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
 
         // Compile DealSummary dynamically in memory from simulations and winner
         if (sims.length > 0 && opt) {
-          const winningSim = sims.find(s => s.id === opt.winningStrategyId) || sims[0];
-          const discountSim = sims.find(s => s.id === 's_discount');
-          const discountPct = discountSim ? Math.round(discountSim.discountPercent ?? 0.0) : 15;
+          const winningSim = sims.find(s => s.id === opt.winningStrategyId);
+          const isInitial = opt.winningStrategyId === 'none' || opt.winningStrategyId === 'initial';
 
-          const unitOffer = activeProd.price * (1.0 - (winningSim.discountPercent ?? 0.0) / 100.0);
+          const discountSim = sims.find(s => s.id === 's_discount');
+          const discountPct = (opt && opt.currentDiscountPercent !== undefined)
+            ? Math.round(opt.currentDiscountPercent)
+            : (isInitial ? 0 : (discountSim ? Math.round(discountSim.discountPercent ?? 0.0) : 15));
+
+          const unitOffer = (opt && opt.currentOfferPrice !== undefined)
+            ? opt.currentOfferPrice
+            : (isInitial ? activeProd.price : (winningSim ? activeProd.price * (1.0 - (winningSim.discountPercent ?? 0.0) / 100.0) : activeProd.price));
           if (minPrice > 0 && unitOffer <= minPrice * 1.05) {
             setNearMinimumPrice(true);
           } else {
@@ -203,9 +311,9 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
             currentPrice: activeProd.price,
             customerDiscountRequest: discountPct,
             currentAiOfferPrice: unitOffer,
-            bundleItems: winningSim.concessions || (winningSim.id === 's_bundle' ? ["Premium English Willow Care Kit", "Dynamic Matrix Scale Grip"] : []),
+            bundleItems: isInitial ? [] : (winningSim?.concessions || (winningSim?.id === 's_bundle' ? ["Premium English Willow Care Kit", "Dynamic Matrix Scale Grip"] : [])),
             status: chatMsgs.length > 2 ? "Negotiation Active" : "Negotiation Initiated",
-            closeProbability: winningSim.closeProbability,
+            closeProbability: isInitial ? 0.9 : (winningSim?.closeProbability ?? 0.88),
             confidenceScore: opt.confidenceScore,
             optimizationObjective: currentMode
           };
@@ -234,48 +342,61 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
     } finally {
       setIsLoading(false);
     }
-  }, [activeProduct, quantity, customerId, loadCart]);
+  }, [quantity, customerId, loadCart]);
 
   // Sync mode changes to components
   useEffect(() => {
     if (!isReplaying) {
-      if (!IS_DEMO_MODE && messages.length > 0) {
-        // Recalculate simulation values dynamically on the backend when mode changes
-        setIsLoading(true);
-        const lastUserMsg = [...messages].reverse().find(m => m.sender === 'customer')?.text || `I want a cricket bat`;
-        
-        runRecalculation(customerId, activeProduct.id, quantity, lastUserMsg, optimizationMode)
-          .then(({ simulations: newSims, winner: newWinner, digitalTwin: newTwin }) => {
-            setSimulations(newSims);
-            setOptimizerResult(newWinner);
-            if (newWinner) {
-              setSelectedStrategyId(newWinner.winningStrategyId);
-            }
-            
-            const winningSim = newSims.length > 0 ? (newSims.find(s => s.id === newWinner.winningStrategyId) || newSims[0]) : null;
-            const discountSim = newSims.length > 0 ? newSims.find(s => s.id === 's_discount') : null;
-            const discountPct = discountSim ? Math.round(discountSim.discountPercent ?? 0.0) : 15;
-            const unitOffer = winningSim ? activeProduct.price * (1.0 - (winningSim.discountPercent ?? 0.0) / 100.0) : activeProduct.price;
+      const activeProd = activeProductRef.current;
+      if (!activeProd) return;
 
-            setDealSummary({
-              selectedProductId: activeProduct.id,
-              currentPrice: activeProduct.price,
-              customerDiscountRequest: discountPct,
-              currentAiOfferPrice: unitOffer,
-              bundleItems: winningSim ? (winningSim.concessions || (winningSim.id === 's_bundle' ? ["Premium English Willow Care Kit", "Dynamic Matrix Scale Grip"] : [])) : [],
-              status: "Negotiation Active",
-              closeProbability: winningSim ? winningSim.closeProbability : 0.88,
-              confidenceScore: newWinner ? newWinner.confidenceScore : 0.90,
-              optimizationObjective: optimizationMode
-            });
-          })
-          .catch(err => console.error("Failed to run recalculation", err))
-          .finally(() => setIsLoading(false));
-      } else {
-        loadAllData(optimizationMode);
+      const modeChanged = prevModeRef.current !== optimizationMode;
+      prevModeRef.current = optimizationMode;
+
+      if (modeChanged) {
+        if (!IS_DEMO_MODE && messages.length > 0) {
+          // Recalculate simulation values dynamically on the backend when mode changes
+          setIsLoading(true);
+          const lastUserMsg = [...messages].reverse().find(m => m.sender === 'customer')?.text || `I want a cricket bat`;
+          
+          runRecalculation(customerId, activeProd.id, quantity, lastUserMsg, optimizationMode)
+            .then(({ simulations: newSims, winner: newWinner, digitalTwin: newTwin }) => {
+              setSimulations(newSims);
+              setOptimizerResult(newWinner);
+              if (newWinner) {
+                setSelectedStrategyId(newWinner.winningStrategyId);
+              }
+              
+              const isInitial = newWinner?.winningStrategyId === 'none' || newWinner?.winningStrategyId === 'initial';
+              const winningSim = !isInitial && newSims.length > 0 ? (newSims.find(s => s.id === newWinner.winningStrategyId) || newSims[0]) : null;
+              const discountSim = newSims.length > 0 ? newSims.find(s => s.id === 's_discount') : null;
+              const discountPct = (newWinner && newWinner.currentDiscountPercent !== undefined)
+                ? Math.round(newWinner.currentDiscountPercent)
+                : (isInitial ? 0 : (discountSim ? Math.round(discountSim.discountPercent ?? 0.0) : 15));
+              const unitOffer = (newWinner && newWinner.currentOfferPrice !== undefined)
+                ? newWinner.currentOfferPrice
+                : (isInitial ? activeProd.price : (winningSim ? activeProd.price * (1.0 - (winningSim.discountPercent ?? 0.0) / 100.0) : activeProd.price));
+
+              setDealSummary({
+                selectedProductId: activeProd.id,
+                currentPrice: activeProd.price,
+                customerDiscountRequest: discountPct,
+                currentAiOfferPrice: unitOffer,
+                bundleItems: isInitial ? [] : (winningSim ? (winningSim.concessions || (winningSim.id === 's_bundle' ? ["Premium English Willow Care Kit", "Dynamic Matrix Scale Grip"] : [])) : []),
+                status: "Negotiation Active",
+                closeProbability: isInitial ? 0.9 : (winningSim ? winningSim.closeProbability : 0.88),
+                confidenceScore: newWinner ? newWinner.confidenceScore : 0.90,
+                optimizationObjective: optimizationMode
+              });
+            })
+            .catch(err => console.error("Failed to run recalculation", err))
+            .finally(() => setIsLoading(false));
+        } else {
+          loadAllData(optimizationMode);
+        }
       }
     }
-  }, [optimizationMode, loadAllData, isReplaying]);
+  }, [optimizationMode, loadAllData, isReplaying, messages, customerId, quantity]);
 
   // Clean timer on unmount
   useEffect(() => {
@@ -292,7 +413,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
       const prod = mockProducts.find(p => p.id === productId) || mockProducts[1];
       setActiveProduct(prod);
       stateManager.resetState(productId);
-      await loadAllData(optimizationMode);
+      await loadAllData(optimizationMode, null, null, true);
     } else {
       try {
         // Initialize negotiation by calling the new endpoint POST /api/v1/workspace/select-product
@@ -335,7 +456,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
           }
           
           // Force a full reload of messages, twin profiles, history, and timeline events
-          await loadAllData(optimizationMode, resolvedProd, quantity);
+          await loadAllData(optimizationMode, resolvedProd, quantity, true);
         }
       } catch (err) {
         console.error("Failed to select product and initialize workspace context", err);
@@ -349,13 +470,26 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
   const sendUserMessage = async (text: string) => {
     if (!text.trim()) return;
 
+    const activeProd = activeProductRef.current;
+    if (!activeProd) return;
+
     setIsTyping(true);
     
     // Add user message to UI immediately for fluid messaging
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const clientMessageId = `temp_u_${Date.now()}`;
     setMessages(prev => [
       ...prev,
-      { id: `temp_u_${Date.now()}`, sender: 'customer', text, timestamp: time }
+      {
+        id: clientMessageId,
+        sender: 'customer',
+        text,
+        timestamp: time,
+        created_at: new Date().toISOString(),
+        role: "user",
+        status: "pending",
+        client_message_id: clientMessageId
+      }
     ]);
 
     try {
@@ -372,7 +506,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
       setTypingStatus("Generating optimal concessions...");
       
       // Submit user turn to backend
-      const chatRes = await submitMessage(text, customerId, activeProduct.id, quantity);
+      const chatRes = await submitMessage(text, customerId, activeProd.id, quantity, clientMessageId);
       if (chatRes) {
         if (chatRes.inventory_status) {
           setInventoryStatus(chatRes.inventory_status);
@@ -394,7 +528,8 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
 
   const lockCurrentDeal = useCallback(async () => {
     if (IS_DEMO_MODE) return;
-    if (!dealSummary || !activeProduct) return;
+    const activeProd = activeProductRef.current;
+    if (!dealSummary || !activeProd) return;
     try {
       const strategy = selectedStrategyId || 'balanced';
       const negotiated_price = dealSummary.currentAiOfferPrice;
@@ -405,7 +540,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
         method: 'POST',
         body: JSON.stringify({
           customer_id: customerId,
-          product_id: activeProduct.id,
+          product_id: activeProd.id,
           quantity: quantity,
           negotiated_price,
           concessions,
@@ -419,7 +554,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
     } catch (err) {
       console.error("Failed to lock deal", err);
     }
-  }, [customerId, activeProduct, quantity, dealSummary, selectedStrategyId, loadCart]);
+  }, [customerId, quantity, dealSummary, selectedStrategyId, loadCart]);
 
   const removeFromCart = useCallback(async (dealId: string) => {
     if (IS_DEMO_MODE) return;
@@ -488,8 +623,9 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
     setIsReplaying(true);
     setPlaybackStep(1);
     
-    if (IS_DEMO_MODE) {
-      stateManager.resetState(activeProduct.id);
+    const activeProd = activeProductRef.current;
+    if (IS_DEMO_MODE && activeProd) {
+      stateManager.resetState(activeProd.id);
     }
 
     // Load initial playback layout
@@ -512,7 +648,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
     
     setSimulations([]);
     setOptimizerResult(null);
-  }, [activeProduct]);
+  }, []);
 
   useEffect(() => {
     if (!isReplaying) return;
@@ -573,9 +709,13 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
             const firstProd = res[0];
             const firstProdId = firstProd.external_product_id || firstProd.id;
             await selectProduct(firstProdId);
+          } else {
+            setActiveProduct(null);
+            setIsLoading(false);
           }
         } catch (err) {
           console.error("Failed to load initial product list", err);
+          setIsLoading(false);
         }
       };
       initDefaultProduct();

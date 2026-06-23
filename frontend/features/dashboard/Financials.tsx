@@ -8,6 +8,22 @@ import { motion } from 'framer-motion';
 export default function Financials() {
   const { simulations, selectedStrategyId, isReplaying, playbackStep, activeProduct } = useNegotiationState();
 
+  if (!activeProduct) {
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="glass-panel rounded-xl p-4.5 flex flex-col justify-between space-y-4 border border-white/5 bg-white/[0.01]">
+            <div className="space-y-3 animate-pulse w-full">
+              <div className="h-3 bg-white/5 rounded w-2/3"></div>
+              <div className="h-6 bg-white/10 rounded w-1/2"></div>
+              <div className="h-3 bg-white/5 rounded w-5/6"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   // If replaying and we haven't reached step 5 (financial evaluation completed), show skeleton loading
   const showSkeleton = isReplaying && playbackStep < 5;
 

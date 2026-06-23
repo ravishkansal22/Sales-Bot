@@ -296,6 +296,10 @@ class OptimizerResult(BaseModel):
         default_factory=list,
         description="Value-add concessions of the winning strategy"
     )
+    actual_offer_discount: float = Field(default=0.0, description="Final actual customer-facing offer discount percent")
+    actual_offer_price: float = Field(default=0.0, description="Final actual customer-facing offer price")
+    current_discount_percent: float | None = Field(default=None, description="Current negotiated discount percent")
+    current_offer_price: float | None = Field(default=None, description="Current negotiated offer price")
 
 
 class SimulateRequest(BaseModel):

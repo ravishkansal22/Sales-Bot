@@ -16,6 +16,7 @@ from app.db.postgres import get_db
 from app.main import app
 from app.models.customer import Customer
 from app.services.llm.base import LLMProvider
+from app.services.llm_service import GracefulFallbackProvider
 
 # ---------------------------------------------------------------------------
 # Mock LLM Provider
@@ -205,3 +206,44 @@ def test_simulate_endpoint(mock_get_llm: MagicMock, client: TestClient, mock_db:
 
     assert data["analysis"]["objection_type"] == "price"
     assert len(data["simulations"]) > 0
+
+
+@patch("app.api.chat.get_llm_provider")
+def test_chat_endpoint_fallback(mock_get_llm: MagicMock, client: TestClient, mock_db: MagicMock) -> None:
+    """Test the /chat endpoint fallback behavior when the primary LLM fails."""
+    # Configure primary LLM provider to fail
+    failing_primary = MagicMock()
+    failing_primary.generate = AsyncMock(side_effect=Exception("Gemini Quota Exceeded"))
+    mock_get_llm.return_value = GracefulFallbackProvider(primary=failing_primary)
+
+    # Stub Customer search to return a mock customer
+    mock_customer = Customer(
+        id="cust_12345678",
+        name="Customer cust_123",
+        email="test@example.com",
+        metadata_={},
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.first.side_effect = [mock_customer, None]
+    mock_result.scalars.return_value.all.return_value = []
+    mock_db.execute.return_value = mock_result
+
+    payload = {
+        "message": "Hi, your product is too expensive. Can you offer a discount?",
+        "customer_id": "cust_12345678",
+        "deal_value": 12000.0,
+        "cost_basis": 8000.0,
+    }
+
+    response = client.post("/api/v1/chat", json=payload)
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    assert "response" in data
+    assert "internal_reasoning" in data
+    assert "digital_twin" in data
+    assert "simulations" in data
+    assert "winner" in data
+

@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.postgres import get_db
+from app.models.negotiation_context import NegotiationContext
 from app.models.customer import Customer, DigitalTwinSnapshot
 from app.models.simulation import SimulationResult
 from app.models.conversation import Conversation
@@ -270,6 +271,8 @@ async def get_customer_messages(
             "sender": "customer" if t.role == "user" else "company",
             "text": t.message,
             "timestamp": t.created_at.strftime("%I:%M %p") if t.created_at else "",
+            "created_at": t.created_at.isoformat() if t.created_at else "",
+            "client_message_id": t.analysis.get("client_message_id") if (t.analysis and isinstance(t.analysis, dict)) else None
         }
         
         # Check if this is a product discovery turn with recommendations
@@ -346,7 +349,8 @@ async def get_customer_timeline(
                     "timestamp": time_str,
                     "title": f"Objection Detected: {objection_type.capitalize()}",
                     "description": f"Customer: \"{t.message}\". Intent: {analysis.get('negotiation_intent', '')}.",
-                    "status": "warning"
+                    "status": "warning",
+                    "client_message_id": analysis.get("client_message_id") if isinstance(analysis, dict) else None
                 })
         else:
             user_turn = turns[i-1] if i > 0 else None
@@ -434,14 +438,24 @@ async def get_customer_optimizer_result(
             detail=f"Customer with ID or External ID '{id}' not found.",
         )
 
-    stmt = (
+    stmt_context = select(NegotiationContext).where(NegotiationContext.customer_id == customer.id)
+    res_context = await db.execute(stmt_context)
+    neg_context = res_context.scalars().first()
+
+    current_discount_percent = 0.0
+    current_offer_price = 0.0
+    if neg_context and neg_context.context_json:
+        current_discount_percent = neg_context.context_json.get("current_discount_percent", 0.0)
+        current_offer_price = neg_context.context_json.get("current_offer_price", 0.0)
+
+    stmt_winner = (
         select(SimulationResult)
         .where(SimulationResult.customer_id == customer.id, SimulationResult.is_winner == True)
         .order_by(SimulationResult.created_at.desc())
         .limit(1)
     )
-    res = await db.execute(stmt)
-    winner = res.scalars().first()
+    res_winner = await db.execute(stmt_winner)
+    winner = res_winner.scalars().first()
 
     if not winner:
         return None
@@ -453,5 +467,7 @@ async def get_customer_optimizer_result(
         "winning_factors": winner.winning_factors or ["Highest expected value"],
         "risk_score": winner.risk_score,
         "confidence_score": winner.confidence_score,
+        "current_discount_percent": current_discount_percent,
+        "current_offer_price": current_offer_price,
     }
 

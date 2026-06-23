@@ -1,0 +1,32 @@
+[2026-06-21 17:22:29] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 17:22:29] RESULT: FAILED - {'status_code': 500, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 17:23:41] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 17:23:41] RESULT: FAILED - {'status_code': 500, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 17:25:42] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 17:25:42] RESULT: FAILED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 17:27:31] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 17:27:31] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 17:29:13] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 17:29:13] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 17:29:35] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 17:29:35] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 18:09:19] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 18:09:19] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 18:12:27] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 18:12:28] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 18:12:55] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 18:12:55] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 18:56:24] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 18:56:24] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 18:57:44] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 18:57:44] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 18:59:18] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 18:59:18] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 19:58:41] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 19:58:41] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 19:59:06] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 19:59:07] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 22:48:33] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 22:48:33] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}
+[2026-06-21 22:50:17] Starting Scenario 6: Groq and Ollama disabled -> failover to Deterministic.
+[2026-06-21 22:50:18] RESULT: PASSED - {'status_code': 200, 'provider': 'deterministic', 'fallback_used': True}

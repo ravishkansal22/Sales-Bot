@@ -1,0 +1,30 @@
+[2026-06-21 17:22:32] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 17:22:32] RESULT: FAILED - {'status_code': 500, 'response': None}
+[2026-06-21 17:23:44] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 17:23:45] RESULT: FAILED - {'status_code': 500, 'response': None}
+[2026-06-21 17:25:46] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 17:25:48] RESULT: FAILED - {'status_code': 200, 'response': "I appreciate your interest in our product and the time you're taking to understand its value. Our solution is designed to provide long-term benefits and high-quality performance, which we believe justifies its price. We're confident that our product will meet your needs and provide a strong return on investment. I'd be happy to discuss the features and advantages of our product in more detail and answer any questions you may have."}
+[2026-06-21 17:27:35] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 17:27:35] RESULT: FAILED - {'status_code': 500, 'response': None}
+[2026-06-21 17:29:17] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 17:29:17] RESULT: FAILED - {'status_code': 200, 'response': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?'}
+[2026-06-21 17:29:39] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 17:29:39] RESULT: PASSED - {'status_code': 200, 'response': '[Specification Unavailable]\nThe requested specification is currently unavailable in the official catalog for Alpha Vacuum.'}
+[2026-06-21 18:09:22] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 18:09:22] RESULT: PASSED - {'status_code': 200, 'response': '[Specification Unavailable]\nThe requested specification is currently unavailable in the official catalog for Alpha Vacuum.'}
+[2026-06-21 18:12:58] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 18:12:59] RESULT: PASSED - {'status_code': 200, 'response': '[Specification Unavailable]\nThe requested specification is currently unavailable in the official catalog for Alpha Vacuum.'}
+[2026-06-21 18:56:26] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 18:56:26] RESULT: PASSED - {'status_code': 200, 'response': '[Specification Unavailable]\nThe requested specification is currently unavailable in the official catalog for Alpha Vacuum.'}
+[2026-06-21 18:57:46] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 18:57:46] RESULT: PASSED - {'status_code': 200, 'response': '[Specification Unavailable]\nThe requested specification is currently unavailable in the official catalog for Alpha Vacuum.'}
+[2026-06-21 18:59:21] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 18:59:21] RESULT: PASSED - {'status_code': 200, 'response': '[Specification Unavailable]\nThe requested specification is currently unavailable in the official catalog for Alpha Vacuum.'}
+[2026-06-21 19:58:43] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 19:58:43] RESULT: PASSED - {'status_code': 200, 'response': '[Specification Unavailable]\nThe requested specification is currently unavailable in the official catalog for Alpha Vacuum.'}
+[2026-06-21 19:59:10] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 19:59:10] RESULT: PASSED - {'status_code': 200, 'response': '[Specification Unavailable]\nThe requested specification is currently unavailable in the official catalog for Alpha Vacuum.'}
+[2026-06-21 22:48:37] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 22:48:43] RESULT: FAILED - {'status_code': 200, 'response': '**[General Knowledge Estimate]** (Confidence: 0.70)\nBased on general category standards and product knowledge for Alpha Vacuum:\n- **Answer**: stainless steel\n*Disclaimer: This is an estimate and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?'}
+[2026-06-21 22:50:21] Starting Scenario 10: Internet disabled Q&A lookup.
+[2026-06-21 22:50:26] RESULT: PASSED - {'status_code': 200, 'response': '**[General Knowledge Estimate]** (Confidence: 0.70)\nBased on general category standards and product knowledge for Alpha Vacuum:\n- **Answer**: Stainless steel\n*Disclaimer: This is an estimate and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?'}

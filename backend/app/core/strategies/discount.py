@@ -8,10 +8,12 @@ within the ``5–30%`` constraint window.
 from __future__ import annotations
 
 from typing import Any
+import math
 
 from app.core.strategies.base import Strategy
 from app.schemas.chat import ConversationAnalysis
 from app.schemas.simulation import DigitalTwinProfile
+from app.core.config_layer import NegotiationConfig
 
 
 class DiscountStrategy(Strategy):
@@ -99,18 +101,61 @@ class DiscountStrategy(Strategy):
             f"- reasoning: <your detailed reasoning>\n"
         )
 
-    def get_constraints(self) -> dict[str, Any]:
+    def get_constraints(self, context_json: dict[str, Any] | None = None) -> dict[str, Any]:
         """Return discount strategy constraints.
+
+        Parameters
+        ----------
+        context_json:
+            Optional negotiation session state context.
 
         Returns
         -------
         dict
             Enforced bounds: discount 5–30%, no bundles.
         """
+        previous_max = 0.0
+        derived_target = 0.0
+
+        if context_json:
+            history = context_json.get("discount_progression_history", []) or []
+            last_offered = context_json.get("last_discount_offered", 0.0) or 0.0
+            
+            # Combine history and last offered to find previous_max discount offered
+            all_past_discounts = [float(d) for d in history if d is not None]
+            if last_offered > 0.0:
+                all_past_discounts.append(float(last_offered))
+                
+            previous_max = max(all_past_discounts) if all_past_discounts else 0.0
+
+            persistence = context_json.get("customer_persistence", 0) or 0
+            quantity = context_json.get("mentioned_quantity", 1) or 1
+            competitor_pressure = context_json.get("competitor_pressure", False)
+            walkaway_risk = context_json.get("walkaway_risk", False)
+
+            # Square-root scaling for quantity
+            quantity_boost = (math.sqrt(quantity) - 1.0) * NegotiationConfig.QUANTITY_DISCOUNT_STEP_COEFFICIENT if quantity > 1 else 0.0
+            competitor_boost = NegotiationConfig.COMPETITOR_PRESSURE_DISCOUNT_STEP if competitor_pressure else 0.0
+            walkaway_boost = NegotiationConfig.WALKAWAY_RISK_DISCOUNT_STEP if walkaway_risk else 0.0
+
+            # Derive target dynamically from pressure signals using configurable coefficients
+            derived_target = (persistence * NegotiationConfig.PERSISTENCE_DISCOUNT_STEP) + quantity_boost + competitor_boost + walkaway_boost
+
+        min_discount_percent = max(previous_max, derived_target)
+
+        current_req = context_json.get("current_customer_requested_discount", 0.0) if context_json else 0.0
+        if current_req > 0.0:
+            max_discount_percent = min(NegotiationConfig.MAX_DISCOUNT_PERCENT, current_req)
+        else:
+            max_discount_percent = NegotiationConfig.MAX_DISCOUNT_PERCENT
+
+        # If min exceeds max, clamp it to max
+        if min_discount_percent > max_discount_percent:
+            min_discount_percent = max_discount_percent
 
         return {
-            "min_discount_percent": 5.0,
-            "max_discount_percent": 30.0,
+            "min_discount_percent": min_discount_percent,
+            "max_discount_percent": max_discount_percent,
             "min_bundle_value": 0.0,
             "max_bundle_value": 0.0,
         }

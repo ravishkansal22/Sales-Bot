@@ -66,7 +66,7 @@ class Strategy(ABC):
         """
 
     @abstractmethod
-    def get_constraints(self) -> dict[str, Any]:
+    def get_constraints(self, context_json: dict[str, Any] | None = None) -> dict[str, Any]:
         """Return strategy-specific constraints for validation.
 
         The dictionary **must** include at least:
@@ -75,6 +75,11 @@ class Strategy(ABC):
         * ``max_discount_percent`` (float)
         * ``min_bundle_value`` (float)
         * ``max_bundle_value`` (float)
+
+        Parameters
+        ----------
+        context_json:
+            Optional negotiation session state context.
 
         Returns
         -------

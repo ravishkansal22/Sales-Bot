@@ -35,6 +35,8 @@ from app.services.customer_service import CustomerService
 from app.services.product_knowledge_service import ProductKnowledgeService
 from app.models.negotiation_context import NegotiationContext
 from app.core.simulation_engine import generate_concessions
+from app.core.intent_classifier import classify_intent
+
 
 router = APIRouter(tags=["simulation"])
 
@@ -190,6 +192,12 @@ async def simulate(
 
         # -- Analysis ---------------------------------------------------------
         analysis = await analyzer.analyze(request.message, history)
+        from app.api.chat import extract_discount_request
+        classification = await classify_intent(request.message, history)
+        parsed_discount = extract_discount_request(request.message)
+        analysis.intent_type = classification.intent
+        analysis.sub_intent = classification.sub_intent
+        analysis.requested_discount = parsed_discount if parsed_discount is not None else 0.0
 
         # -- 2. Load/Initialize Negotiation Context ---------------------------
         neg_context = None
@@ -245,17 +253,72 @@ async def simulate(
             analysis, history, existing_twin, customer_summary
         )
 
+        # Update context_json behavioral state inside neg_context in-memory
+        context_json = {}
+        if neg_context and neg_context.context_json:
+            context_json = dict(neg_context.context_json)
+        
+        if parsed_discount is not None:
+            context_json["requested_discount"] = parsed_discount
+            context_json["current_customer_requested_discount"] = parsed_discount
+        else:
+            context_json.setdefault("requested_discount", 0.0)
+            context_json.setdefault("current_customer_requested_discount", 0.0)
+            
+        context_json["mentioned_quantity"] = quantity
+        context_json["quantity"] = quantity
+
         # -- Simulations ------------------------------------------------------
         simulations = await sim_engine.simulate_all(
-            digital_twin, analysis, deal_value, cost_basis, product, quantity
+            digital_twin,
+            analysis,
+            deal_value,
+            cost_basis,
+            product,
+            quantity,
+            history=history,
+            customer=customer,
+            context_json=context_json
         )
+
+        # Determine has_pricing_request
+        has_pricing_request = False
+        from app.api.chat import is_negotiation_message
+        if is_negotiation_message(request.message):
+            has_pricing_request = True
+        elif neg_context and neg_context.requested_discount > 0.0:
+            has_pricing_request = True
+        elif history:
+            for h in history:
+                if h.get("role") == "user" and is_negotiation_message(h.get("message", "")):
+                    has_pricing_request = True
+                    break
+
+        # Calculate dynamic ceiling
+        dynamic_ceiling = 0.0
+        if product:
+            dynamic_ceiling = sim_engine.calculate_dynamic_ceiling(
+                product=product,
+                quantity=quantity,
+                history=history,
+                customer=customer,
+                brand_loyalty=digital_twin.brand_loyalty,
+                context_json=context_json
+            )
 
         # -- Deterministic optimisation ---------------------------------------
         winner = StrategyOptimizer.optimize(
             simulations,
             request.optimization_mode,
+            stock_quantity=product.stock_quantity if product else 50,
+            history=history,
+            has_pricing_request=has_pricing_request,
+            context_json=context_json,
+            dynamic_ceiling=dynamic_ceiling,
+            list_price=product.selling_price if product else 0.0,
+            requested_discount_percent=parsed_discount if parsed_discount is not None else 0.0,
         )
-        winner.concessions = generate_concessions(product.category if product else None, winner.winning_strategy, product.name if product else None)
+        winner.concessions = generate_concessions(product.category if product else None, winner.winning_strategy, product.name if product else None, context_json)
 
         # -- 14. Assemble response -------------------------------------------
         inventory_status = "Available"
@@ -273,6 +336,13 @@ async def simulate(
             min_price = product.minimum_price
             winning_sim = next((s for s in simulations if s.strategy_name == winner.winning_strategy), None)
             if winning_sim:
+                if winning_sim.discount_percent > 0.0 or winner.winning_strategy == "discount":
+                    winning_sim.discount_percent = winner.actual_offer_discount
+                
+                # Expose current negotiated values on winner object
+                winner.current_discount_percent = float(winning_sim.discount_percent)
+                winner.current_offer_price = float(product.selling_price * (1.0 - winning_sim.discount_percent / 100.0))
+                
                 unit_offer = product.selling_price * (1.0 - winning_sim.discount_percent / 100.0)
                 if min_price > 0 and unit_offer <= min_price * 1.05:
                     near_min = True

@@ -71,15 +71,33 @@ Rules:
 """
 
 
-def generate_concessions(category: str | None, strategy_name: str, product_name: str | None = None) -> list[str]:
+def generate_concessions(
+    category: str | None,
+    strategy_name: str,
+    product_name: str | None = None,
+    context_json: dict[str, Any] | None = None,
+) -> list[str]:
     if strategy_name != "bundle":
         return []
-    
-    return [
+
+    concession_pool = [
         "Extended 12-Month Support SLA Upgrade",
         "Flexible Net-60 Payment Terms",
-        "Priority Express Delivery Logistics"
+        "Priority Express Delivery Logistics",
+        "Complementary Installation & Setup Assistance",
+        "On-Demand Team Onboarding & Training Session",
+        "Premium Protection Cover Accessory Package"
     ]
+
+    offered = []
+    if context_json:
+        offered = context_json.get("offered_concessions", [])
+
+    available = [c for c in concession_pool if c not in offered]
+    if len(available) < 3:
+        available = available + [c for c in concession_pool if c in offered]
+
+    return available[:3]
 
 
 class SimulationEngine:
@@ -121,6 +139,7 @@ class SimulationEngine:
         history: list[dict[str, Any]] | None = None,
         customer: Customer | None = None,
         brand_loyalty: float = 0.5,
+        context_json: dict[str, Any] | None = None,
     ) -> float:
         """Calculate dynamic pricing ceiling incorporating segment, spend, volume, and stock."""
         import math
@@ -139,7 +158,7 @@ class SimulationEngine:
         if quantity > 1:
             volume_allowance = min(
                 NegotiationConfig.VOLUME_MAX_ALLOWANCE, 
-                math.log10(quantity) * NegotiationConfig.VOLUME_COEFFICIENT
+                math.sqrt(quantity) * NegotiationConfig.VOLUME_COEFFICIENT
             )
             ceiling += volume_allowance
 
@@ -176,6 +195,24 @@ class SimulationEngine:
             ceiling = min(ceiling, NegotiationConfig.STOCK_MEDIUM_CEILING)
         else:
             ceiling += NegotiationConfig.STOCK_EXCESS_CEILING_MODIFIER
+        
+        persistence = 0
+        competitor_pressure = False
+        walkaway_risk = False
+
+        if context_json:
+            persistence = context_json.get("customer_persistence", 0)
+            competitor_pressure = context_json.get("competitor_pressure", False)
+            walkaway_risk = context_json.get("walkaway_risk", False)
+
+        # Progressive flexibility
+        ceiling += persistence * 1.5
+
+        if competitor_pressure:
+            ceiling += 2.0
+
+        if walkaway_risk:
+            ceiling += 2.0
 
         # 6. Absolute Floor Clamp
         floor_discount = max(0.0, (1.0 - product.minimum_price / product.selling_price) * 100.0)
@@ -192,6 +229,7 @@ class SimulationEngine:
         quantity: int = 1,
         history: list[dict[str, Any]] | None = None,
         customer: Customer | None = None,
+        context_json: dict[str, Any] | None = None,
     ) -> list[SimulationOutput]:
         """Run all registered strategies with multi-rollout simulations.
 
@@ -232,7 +270,7 @@ class SimulationEngine:
 
         # Launch all strategies concurrently.
         tasks = [
-            self._simulate_strategy(strategy, twin, analysis, deal_value, cost_basis, product, quantity, history, customer)
+            self._simulate_strategy(strategy, twin, analysis, deal_value, cost_basis, product, quantity, history, customer, context_json)
             for strategy in strategies
         ]
         results: list[SimulationOutput] = await asyncio.gather(*tasks)
@@ -253,6 +291,7 @@ class SimulationEngine:
         quantity: int = 1,
         history: list[dict[str, Any]] | None = None,
         customer: Customer | None = None,
+        context_json: dict[str, Any] | None = None,
     ) -> SimulationOutput:
         """Simulate a single strategy with ``rollout_count`` rollouts.
 
@@ -275,13 +314,13 @@ class SimulationEngine:
 
         # 1. Generate rollout prompts and call LLM in parallel.
         rollout_tasks = [
-            self._run_single_rollout(strategy, twin, analysis, deal_value, cost_basis, i, product, quantity)
+            self._run_single_rollout(strategy, twin, analysis, deal_value, cost_basis, i, product, quantity, history, customer, context_json)
             for i in range(self._rollout_count)
         ]
         raw_outputs: list[LLMStrategyOutput] = await asyncio.gather(*rollout_tasks)
 
         # 2. Clamp each output to strategy constraints.
-        constraints = strategy.get_constraints()
+        constraints = strategy.get_constraints(context_json)
         if product is not None:
             constraints = dict(constraints)  # Avoid mutating shared class constraints
             dynamic_ceiling = self.calculate_dynamic_ceiling(
@@ -289,8 +328,10 @@ class SimulationEngine:
                 quantity=quantity,
                 history=history,
                 customer=customer,
-                brand_loyalty=twin.brand_loyalty if hasattr(twin, "brand_loyalty") else 0.5
-            )
+                brand_loyalty=twin.brand_loyalty if hasattr(twin, "brand_loyalty") else 0.5,
+                context_json=context_json
+                )
+            
             constraints["max_discount_percent"] = min(constraints.get("max_discount_percent", 100.0), dynamic_ceiling)
 
         clamped_outputs: list[LLMStrategyOutput] = [
@@ -359,6 +400,8 @@ class SimulationEngine:
             customer_reaction = CustomerSimulator.simulate_reaction(
                 twin=twin,
                 strategy_output=output,
+                analysis=analysis,
+                context_json=context_json,
             )
 
             # Close probability using reaction-aware scoring.
@@ -412,7 +455,24 @@ class SimulationEngine:
         # Use the first rollout's offer params as the "representative"
         # offer (they should be similar after clamping).  The reasoning
         # from the first rollout is used as the headline reasoning.
-        representative = clamped_outputs[0]
+        if strategy.name == "discount":
+            best_idx = 0
+            best_score = float("-inf")
+            for idx in range(len(clamped_outputs)):
+                ev = expected_values[idx]
+                cp = close_probabilities[idx]
+                rs = risk_scores[idx]
+                norm_ev = ev / deal_value if deal_value > 0 else 0.0
+                score = norm_ev * 0.5 + cp * 0.3 + (1.0 - rs) * 0.2
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+            representative = clamped_outputs[best_idx]
+        else:
+            representative = max(
+                clamped_outputs,
+                key=lambda o: o.discount_percent
+            )
 
         return SimulationOutput(
             strategy_name=strategy.name,
@@ -429,7 +489,7 @@ class SimulationEngine:
                 6,
             ),
             average_expected_value=round(avg_ev, 2),
-            concessions=generate_concessions(product.category if product else None, strategy.name, product.name if product else None)
+            concessions=generate_concessions(product.category if product else None, strategy.name, product.name if product else None, context_json)
         )
 
     # ------------------------------------------------------------------
@@ -446,73 +506,66 @@ class SimulationEngine:
         rollout_index: int,
         product: Product | None = None,
         quantity: int = 1,
+        history: list[dict[str, Any]] | None = None,
+        customer: Customer | None = None,
+        context_json: dict[str, Any] | None = None,
     ) -> LLMStrategyOutput:
-        """Execute a single LLM rollout for a strategy.
+        """Execute a single rollout for a strategy (deterministic, no LLM call)."""
+        # Get base constraints
+        constraints = dict(strategy.get_constraints(context_json))
+        
+        # Calculate dynamic maximum discount ceiling if product is present
+        if product is not None:
+            brand_loyalty = getattr(twin, "brand_loyalty", 0.5) or 0.5
+            dynamic_ceiling = self.calculate_dynamic_ceiling(
+                product=product,
+                quantity=quantity,
+                history=history,
+                customer=customer,
+                brand_loyalty=brand_loyalty,
+                context_json=context_json,
+            )
+            constraints["max_discount_percent"] = min(constraints.get("max_discount_percent", 100.0), dynamic_ceiling)
 
-        Parameters
-        ----------
-        strategy:
-            The strategy to use.
-        twin, analysis, deal_value, cost_basis:
-            Simulation context.
-        rollout_index:
-            Zero-based index for prompt variance.
-        product:
-            Resolved Product catalog model.
-        quantity:
-            Negotiated item count.
+        min_disc = constraints.get("min_discount_percent", 0.0)
+        max_disc = constraints.get("max_discount_percent", 100.0)
+        min_bund = constraints.get("min_bundle_value", 0.0)
+        max_bund = constraints.get("max_bundle_value", float("inf"))
 
-        Returns
-        -------
-        LLMStrategyOutput
-            The raw (unclamped) LLM output.
-        """
+        # Cap bundle cost dynamically at 25% of deal value
+        effective_max_bund = min(max_bund, deal_value * NegotiationConfig.MAX_BUNDLE_DEAL_VALUE_RATIO)
 
-        prompt = strategy.build_prompt(
-            twin=twin,
-            analysis=analysis,
-            deal_value=deal_value,
-            cost_basis=cost_basis,
-            rollout_index=rollout_index,
+        # Safety rail: ensure min bounds do not exceed max bounds
+        if min_disc > max_disc:
+            min_disc = max_disc
+        if min_bund > effective_max_bund:
+            min_bund = effective_max_bund
+
+        # Interpolate based on rollout_index to introduce variation across Monte-Carlo rollouts
+        if self._rollout_count > 1:
+            ratio = rollout_index / (self._rollout_count - 1)
+        else:
+            ratio = 0.5
+
+        ratio = max(0.0, min(ratio, 1.0))
+
+        discount_percent = min_disc + ratio * (max_disc - min_disc)
+        bundle_value = min_bund + ratio * (effective_max_bund - min_bund)
+
+        # Generate a descriptive reasoning string based on the profile traits and parameters
+        reasoning = (
+            f"Deterministic simulation rollout for strategy '{strategy.name}'. "
+            f"Fitted for customer price sensitivity {twin.price_sensitivity:.2f} and urgency {twin.urgency:.2f}. "
+            f"Proposed offer: {discount_percent:.2f}% discount and bundle value of {bundle_value:.2f}."
         )
 
-        if product is not None:
-            product_context = (
-                f"\n\n## Product Catalog Constraints Under Negotiation:\n"
-                f"- Product Name: {product.name}\n"
-                f"- Category: {product.category}\n"
-                f"- List Price per unit: ${product.selling_price:,.2f}\n"
-                f"- Quantity: {quantity}\n"
-                f"- Total List Price: ${product.selling_price * quantity:,.2f}\n"
-                f"- Minimum allowed unit floor price: ${product.minimum_price:,.2f}\n"
-                f"- Stock available: {product.stock_quantity} units\n"
-                f"Note: Your proposal must respect these constraints. Do not offer deals below the minimum floor price."
-            )
-            prompt += product_context
-
-        try:
-            return await self._llm.generate(
-                prompt=prompt,
-                system_prompt=_ROLLOUT_SYSTEM_PROMPT,
-                response_model=LLMStrategyOutput,
-            )
-        except Exception:
-            logger.exception(
-                "LLM rollout failed for strategy=%s rollout=%d; returning safe defaults.",
-                strategy.name,
-                rollout_index,
-            )
-            # Return a safe fallback so the simulation can still aggregate.
-            return LLMStrategyOutput(
-                strategy_name=strategy.name,
-                offer_type=strategy.offer_type,
-                discount_percent=0.0,
-                bundle_value=0.0,
-                reasoning=(
-                    f"Fallback: LLM call failed for {strategy.name} "
-                    f"rollout {rollout_index}. Using conservative defaults."
-                ),
-            )
+        return LLMStrategyOutput(
+            strategy_name=strategy.name,
+            offer_type=strategy.offer_type,
+            discount_percent=round(discount_percent, 2),
+            bundle_value=round(bundle_value, 2),
+            reasoning=reasoning,
+        )
 
     # ------------------------------------------------------------------
     # Output clamping (private)
@@ -552,6 +605,12 @@ class SimulationEngine:
 
         # Dynamic cap: bundle cost should never exceed 25% of deal value.
         effective_max_bund = min(max_bund, deal_value * NegotiationConfig.MAX_BUNDLE_DEAL_VALUE_RATIO)
+
+        # Safety rail: ensure min bounds do not exceed max bounds
+        if min_disc > max_disc:
+            min_disc = max_disc
+        if min_bund > effective_max_bund:
+            min_bund = effective_max_bund
 
         clamped_discount = max(min_disc, min(output.discount_percent, max_disc))
         clamped_bundle = max(min_bund, min(output.bundle_value, effective_max_bund))

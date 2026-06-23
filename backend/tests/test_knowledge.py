@@ -64,9 +64,9 @@ async def test_answer_product_question_fact(mock_db: MagicMock) -> None:
     service = ProductKnowledgeService(llm=mock_llm)
     
     ans = await service.answer_product_question(product, "What material is this made of?", mock_db)
-    assert "[Catalog-Backed Fact]" in ans
-    assert "Material" in ans
-    assert "Carbon Fiber" in ans
+    assert ans.source == "catalog"
+    assert "Material" in ans.customer_response
+    assert "Carbon Fiber" in ans.customer_response
 
 @pytest.mark.asyncio
 async def test_compare_products(mock_db: MagicMock) -> None:

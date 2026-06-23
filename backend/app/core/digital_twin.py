@@ -119,14 +119,114 @@ class DigitalTwinBuilder:
         DigitalTwinProfile
             The inferred (or updated) customer profile.
         """
+        # Initialize with prior or neutral baseline
+        if existing_twin is not None:
+            price_sens = existing_twin.price_sensitivity
+            urgency = existing_twin.urgency
+            risk_av = existing_twin.risk_aversion
+            brand_loy = existing_twin.brand_loyalty
+            dec_speed = existing_twin.decision_speed
+        else:
+            price_sens = 0.5
+            urgency = 0.5
+            risk_av = 0.5
+            brand_loy = 0.5
+            dec_speed = 0.5
 
-        user_prompt = self._build_user_prompt(
-            analysis, history, existing_twin, customer_history_summary
-        )
-        return await self._llm.generate(
-            prompt=user_prompt,
-            system_prompt=_SYSTEM_PROMPT,
-            response_model=DigitalTwinProfile,
+        # 1. Customer history summary adjustments
+        if customer_history_summary:
+            segment = getattr(customer_history_summary, "segment", "STANDARD").upper()
+            if segment in ("VIP", "STRATEGIC"):
+                price_sens -= 0.15
+                brand_loy += 0.20
+            elif segment in ("BARGAIN HUNTER", "BARGAIN"):
+                price_sens += 0.20
+                brand_loy -= 0.10
+            elif segment == "CHURN RISK":
+                price_sens += 0.10
+                brand_loy -= 0.15
+
+            total_spend = getattr(customer_history_summary, "total_spend", 0.0)
+            if total_spend > 50000.0:
+                price_sens -= 0.10
+                brand_loy += 0.10
+            elif total_spend > 10000.0:
+                price_sens -= 0.05
+
+            return_rate = getattr(customer_history_summary, "return_rate", 0.0)
+            if return_rate > 0.10:
+                risk_av += 0.10
+
+            rep_discounts = getattr(customer_history_summary, "repeated_discount_purchases_count", 0)
+            if rep_discounts > 2:
+                price_sens += 0.15
+
+        # 2. Conversation analysis adjustments
+        if analysis:
+            obj_type = getattr(analysis, "objection_type", "none").lower()
+            if obj_type in ("price", "budget"):
+                price_sens += 0.15
+                urgency += 0.05
+            elif obj_type == "competitor":
+                price_sens += 0.10
+                brand_loy -= 0.10
+            elif obj_type == "trust":
+                risk_av += 0.15
+                brand_loy -= 0.10
+            elif obj_type == "value":
+                risk_av += 0.10
+                price_sens += 0.05
+            elif obj_type == "feature_gap":
+                risk_av += 0.10
+
+            intent = getattr(analysis, "negotiation_intent", "").lower()
+            if intent == "discount_seeking":
+                price_sens += 0.15
+            elif intent == "closing":
+                dec_speed += 0.15
+                urgency += 0.15
+            elif intent == "stalling":
+                dec_speed -= 0.15
+                risk_av += 0.10
+            elif intent == "competitive_leverage":
+                price_sens += 0.10
+                brand_loy -= 0.10
+            elif intent == "relationship_building":
+                brand_loy += 0.05
+
+            anal_urgency = getattr(analysis, "urgency", 0.5)
+            # Blend urgency with latest analysis urgency
+            urgency = 0.6 * urgency + 0.4 * anal_urgency
+
+            sentiment = getattr(analysis, "sentiment", "neutral").lower()
+            if sentiment in ("negative", "frustrated"):
+                price_sens += 0.05
+                risk_av += 0.05
+            elif sentiment in ("positive", "excited"):
+                brand_loy += 0.05
+                dec_speed += 0.05
+
+            stage = getattr(analysis, "stage", "").lower()
+            if stage == "decision":
+                dec_speed += 0.10
+                urgency += 0.05
+            elif stage in ("negotiation", "objection"):
+                price_sens += 0.05
+
+        # Clamp values to [0, 1]
+        price_sens = max(0.0, min(1.0, price_sens))
+        urgency = max(0.0, min(1.0, urgency))
+        risk_av = max(0.0, min(1.0, risk_av))
+        brand_loy = max(0.0, min(1.0, brand_loy))
+        dec_speed = max(0.0, min(1.0, dec_speed))
+
+        # Build verified profile
+        return DigitalTwinProfile(
+            price_sensitivity=round(price_sens, 2),
+            urgency=round(urgency, 2),
+            risk_aversion=round(risk_av, 2),
+            brand_loyalty=round(brand_loy, 2),
+            decision_speed=round(dec_speed, 2),
         )
 
     # ------------------------------------------------------------------

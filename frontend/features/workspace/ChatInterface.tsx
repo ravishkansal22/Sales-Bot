@@ -49,12 +49,17 @@ export default function ChatInterface() {
     
     // Parse if it represents an offer response
     if (lowerText.includes('offer') || lowerText.includes('bundle') || lowerText.includes('concession')) {
-      if (dealSummary) {
+      if (dealSummary && activeProduct) {
+        const discount = dealSummary.customerDiscountRequest ?? 0;
+        const bundles = dealSummary.bundleItems || [];
+        if (discount === 0 && bundles.length === 0) {
+          return null;
+        }
         return {
           productName: activeProduct.name,
           price: dealSummary.currentAiOfferPrice,
-          discount: dealSummary.customerDiscountRequest || 10,
-          bundles: dealSummary.bundleItems,
+          discount: discount,
+          bundles: bundles,
           valid: 'Offer Secured — Awaiting Acceptance'
         };
       }

@@ -1,0 +1,32 @@
+[2026-06-21 17:22:27] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 17:22:28] RESULT: FAILED - {'status_code': 500, 'intent_type': None, 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 17:23:39] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 17:23:40] RESULT: FAILED - {'status_code': 500, 'intent_type': None, 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 17:25:41] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 17:25:41] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 17:27:29] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 17:27:30] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 17:29:11] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 17:29:12] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 17:29:33] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 17:29:34] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 18:09:18] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 18:09:18] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 18:12:26] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 18:12:26] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 18:12:54] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 18:12:54] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 18:56:23] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 18:56:23] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 18:57:44] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 18:57:44] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 18:59:16] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 18:59:16] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 19:58:41] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 19:58:41] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 19:59:05] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 19:59:05] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 22:48:31] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 22:48:31] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}
+[2026-06-21 22:50:15] Starting Scenario 2: Continue active negotiation with 'Can you do better?'
+[2026-06-21 22:50:15] RESULT: PASSED - {'status_code': 200, 'intent_type': 'negotiation', 'has_recommendations': False, 'provider': 'groq', 'fallback_used': False}

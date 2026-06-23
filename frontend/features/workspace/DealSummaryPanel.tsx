@@ -22,12 +22,12 @@ export default function DealSummaryPanel() {
 
   const [activeTab, setActiveTab] = useState<'summary' | 'cart'>('summary');
 
-  if (!dealSummary) {
+  if (!dealSummary || !activeProduct) {
     return (
       <div className="glass-panel rounded-xl p-5 flex flex-col justify-center items-center h-full min-h-[300px]">
         <span className="animate-spin h-5 w-5 border-2 border-cyan-glow border-t-transparent rounded-full mb-3"></span>
         <span className="font-mono text-xs text-white/30 tracking-widest uppercase">
-          Compiling Deal Summary...
+          {!activeProduct ? "Please Select a Product..." : "Compiling Deal Summary..."}
         </span>
       </div>
     );

@@ -1,0 +1,32 @@
+[2026-06-21 17:22:28] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 17:22:28] RESULT: FAILED - {'status_code': 500, 'answer_extracted': None, 'provider': 'groq'}
+[2026-06-21 17:23:40] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 17:23:40] RESULT: FAILED - {'status_code': 500, 'answer_extracted': None, 'provider': 'groq'}
+[2026-06-21 17:25:41] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 17:25:41] RESULT: FAILED - {'status_code': 500, 'answer_extracted': None, 'provider': 'groq'}
+[2026-06-21 17:27:30] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 17:27:30] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 17:29:12] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 17:29:12] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 17:29:34] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 17:29:34] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 18:09:18] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 18:09:18] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 18:12:26] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 18:12:27] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 18:12:54] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 18:12:55] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 18:56:23] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 18:56:23] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 18:57:44] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 18:57:44] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 18:59:16] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 18:59:17] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 19:58:41] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 19:58:41] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 19:59:05] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 19:59:05] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[Web-Retrieved Information]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 22:48:31] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 22:48:32] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[General Knowledge Estimate]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n*Disclaimer: This is an estimate based on search results and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-21 22:50:15] Starting Scenario 3: Ask product color spec question.
+[2026-06-21 22:50:16] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[General Knowledge Estimate]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n*Disclaimer: This is an estimate based on search results and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?', 'provider': 'groq'}

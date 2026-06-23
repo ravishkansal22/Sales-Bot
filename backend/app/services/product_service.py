@@ -60,28 +60,27 @@ class ProductService:
         query: str,
         limit: int = 20,
     ) -> list[Product]:
-        """Fuzzy/text search products by name or category.
-
-        Args:
-            db: Active database session.
-            query: Text query to search for.
-            limit: Maximum number of search results to return.
-
-        Returns:
-            A list of matching Product records.
-        """
+        """Fuzzy/text search products by name or category, with category-sticky logic and deduplication."""
         if not query or not query.strip():
-            # Return popular products if search is empty
+            # Return popular products if search is empty, but deduplicate them
             result = await db.execute(
                 select(Product)
                 .order_by(Product.popularity_index.desc())
-                .limit(limit)
+                .limit(limit * 3)
             )
-            return list(result.scalars().all())
+            products = list(result.scalars().all())
+            seen_names = set()
+            deduped = []
+            for p in products:
+                name_lower = p.name.strip().lower()
+                if name_lower not in seen_names:
+                    seen_names.add(name_lower)
+                    deduped.append(p)
+            return deduped[:limit]
 
-        terms = [t.strip() for t in query.split() if len(t.strip()) > 1]
+        terms = [t.strip().lower() for t in query.split() if len(t.strip()) > 1]
         if not terms:
-            terms = [query.strip()]
+            terms = [query.strip().lower()]
 
         conditions = []
         for term in terms:
@@ -89,9 +88,57 @@ class ProductService:
             conditions.append(Product.category.ilike(f"%{term}%"))
             conditions.append(Product.description.ilike(f"%{term}%"))
 
-        stmt = select(Product).where(or_(*conditions)).limit(limit)
+        # Fetch a larger pool of raw matches to allow scoring, deduplication, and category stickiness
+        stmt = select(Product).where(or_(*conditions)).limit(200)
         result = await db.execute(stmt)
-        return list(result.scalars().all())
+        raw_products = list(result.scalars().all())
+
+        if not raw_products:
+            return []
+
+        # Python-based generic ranking and scoring
+        def score_product(p: Product) -> float:
+            score = 0.0
+            p_name_lower = p.name.lower()
+            p_cat_lower = p.category.lower()
+            p_desc_lower = (p.description or "").lower()
+            for term in terms:
+                # Direct word matches in name have high weight
+                if term in p_name_lower:
+                    score += 10.0
+                # Matches in category
+                if term in p_cat_lower:
+                    score += 5.0
+                # Matches in description
+                if term in p_desc_lower:
+                    score += 1.0
+            return score
+
+        scored_products = [(p, score_product(p)) for p in raw_products]
+        scored_products.sort(key=lambda x: x[1], reverse=True)
+
+        # Deduplicate by lowercase product name to resolve duplicate listing products
+        seen_names = set()
+        unique_scored = []
+        for p, score in scored_products:
+            p_name = p.name.strip().lower()
+            if p_name not in seen_names:
+                seen_names.add(p_name)
+                unique_scored.append((p, score))
+
+        if not unique_scored:
+            return []
+
+        # Category stickiness: infer category from the top ranked result
+        top_product, top_score = unique_scored[0]
+        final_products = [x[0] for x in unique_scored]
+        
+        if top_score > 0:
+            target_category = top_product.category
+            # Filter all search results to only return products matching the target category
+            final_products = [p for p in final_products if p.category == target_category]
+
+        return final_products[:limit]
 
     @staticmethod
     async def get_inventory(

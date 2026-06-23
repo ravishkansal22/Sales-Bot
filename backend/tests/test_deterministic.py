@@ -215,6 +215,7 @@ def test_strategy_optimizer() -> None:
             average_risk_score=0.2,
             average_expected_profit=4000.0,
             average_expected_value=3200.0,
+            average_gross_margin_retention=0.9,
         ),
         SimulationOutput(
             strategy_name="hardline",
@@ -230,20 +231,21 @@ def test_strategy_optimizer() -> None:
             average_risk_score=0.1,
             average_expected_profit=5000.0,
             average_expected_value=2000.0,
+            average_gross_margin_retention=1.0,
         ),
     ]
 
     # EV:
-    # discount: 0.8 * 4000 = 3200
+    # discount: 0.8 * 0.9 = 0.72 normalized EV
     # confidence: 1.0 (zero variance in rollout strategy_fit/risk)
-    # adjusted EV = 3200 * (0.7 + 0.3 * 1.0) = 3200
+    # score = 0.72 * 1000 * 0.20 + 0.8 * 1000 * 0.50 + 0.8 * 1000 * 0.20 + 1.0 * 1000 * 0.10 = 144 + 400 + 160 + 100 = 804.0
     #
-    # hardline: 0.4 * 5000 = 2000
+    # hardline: 0.4 * 1.0 = 0.40 normalized EV
     # confidence: 1.0
-    # adjusted EV = 2000
+    # score = 0.40 * 1000 * 0.20 + 0.4 * 1000 * 0.50 + 0.9 * 1000 * 0.20 + 1.0 * 1000 * 0.10 = 80 + 200 + 180 + 100 = 560.0
     result = StrategyOptimizer.optimize(sims)
     assert result.winning_strategy == "discount"
-    assert result.score == 1780.0
+    assert result.score == 804.0
     assert result.confidence_score == 1.0
     assert result.risk_score == 0.2
     assert len(result.all_rankings) == 2

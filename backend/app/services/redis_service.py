@@ -19,6 +19,15 @@ from app.services.llm_service import settings
 logger = logging.getLogger(__name__)
 
 _redis_service: RedisService | None = None
+redis_available: bool = False
+
+
+def disable_redis() -> None:
+    """Disable Redis caching and circuit breaker state storage globally."""
+    global _redis_service, redis_available
+    _redis_service = None
+    redis_available = False
+    logger.warning("Redis has been disabled globally.")
 
 
 class RedisService:
@@ -35,6 +44,7 @@ class RedisService:
             client: An ``redis.asyncio.Redis`` instance.
         """
         self._client: aioredis.Redis = client
+        self.is_available: bool = True
 
     async def get(self, key: str) -> Any | None:
         """Retrieve and deserialise a JSON value from Redis.
@@ -46,10 +56,18 @@ class RedisService:
             The deserialised Python object, or ``None`` if the key
             does not exist.
         """
-        raw: bytes | str | None = await self._client.get(key)
-        if raw is None:
+        if not self.is_available or not redis_available:
             return None
-        return json.loads(raw)
+        try:
+            raw: bytes | str | None = await self._client.get(key)
+            if raw is None:
+                return None
+            return json.loads(raw)
+        except Exception as exc:
+            logger.warning("Redis read failed: %s. Disabling Redis globally.", exc)
+            self.is_available = False
+            disable_redis()
+            return None
 
     async def set(
         self,
@@ -66,11 +84,18 @@ class RedisService:
             ttl: Optional time-to-live in seconds.  If ``None`` the key
                 will not expire.
         """
-        serialised = json.dumps(value, default=str)
-        if ttl is not None:
-            await self._client.setex(key, ttl, serialised)
-        else:
-            await self._client.set(key, serialised)
+        if not self.is_available or not redis_available:
+            return None
+        try:
+            serialised = json.dumps(value, default=str)
+            if ttl is not None:
+                await self._client.setex(key, ttl, serialised)
+            else:
+                await self._client.set(key, serialised)
+        except Exception as exc:
+            logger.warning("Redis write failed: %s. Disabling Redis globally.", exc)
+            self.is_available = False
+            disable_redis()
 
     async def delete(self, key: str) -> bool:
         """Delete a key from Redis.
@@ -82,12 +107,24 @@ class RedisService:
             ``True`` if the key existed and was deleted, ``False``
             otherwise.
         """
-        result: int = await self._client.delete(key)
-        return result > 0
+        if not self.is_available or not redis_available:
+            return False
+        try:
+            result: int = await self._client.delete(key)
+            return result > 0
+        except Exception as exc:
+            logger.warning("Redis delete failed: %s. Disabling Redis globally.", exc)
+            self.is_available = False
+            disable_redis()
+            return False
 
     async def close(self) -> None:
         """Gracefully close the underlying Redis connection."""
-        await self._client.aclose()
+        if self.is_available:
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -95,19 +132,16 @@ class RedisService:
 # ---------------------------------------------------------------------------
 
 
-async def init_redis() -> RedisService:
+async def init_redis() -> RedisService | None:
     """Create the global :class:`RedisService` instance.
 
     Reads the Redis URL from :data:`settings` and pings the server to
     verify connectivity.
 
     Returns:
-        The initialised :class:`RedisService`.
-
-    Raises:
-        ConnectionError: If the Redis server is unreachable.
+        The initialised :class:`RedisService` or None if connectivity failed.
     """
-    global _redis_service
+    global _redis_service, redis_available
 
     client = aioredis.from_url(
         settings.REDIS_URL,
@@ -119,24 +153,28 @@ async def init_redis() -> RedisService:
     try:
         await client.ping()
         logger.info("Redis connected – %s", settings.REDIS_URL)
+        _redis_service = RedisService(client)
+        redis_available = True
     except Exception as exc:
         logger.warning(
             "Redis ping failed (%s); caching will be unavailable: %s",
             settings.REDIS_URL,
             exc,
         )
+        _redis_service = None
+        redis_available = False
 
-    _redis_service = RedisService(client)
     return _redis_service
 
 
 async def close_redis() -> None:
     """Close the global Redis connection and reset the singleton."""
-    global _redis_service
+    global _redis_service, redis_available
 
     if _redis_service is not None:
         await _redis_service.close()
         _redis_service = None
+        redis_available = False
         logger.info("Redis connection closed")
 
 
@@ -145,18 +183,10 @@ async def close_redis() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def get_redis() -> RedisService:
+async def get_redis() -> RedisService | None:
     """FastAPI dependency that returns the global :class:`RedisService`.
 
     Returns:
         The active :class:`RedisService` instance.
-
-    Raises:
-        RuntimeError: If :func:`init_redis` has not been called.
     """
-    if _redis_service is None:
-        raise RuntimeError(
-            "RedisService is not initialised. "
-            "Ensure init_redis() is called during application startup."
-        )
     return _redis_service

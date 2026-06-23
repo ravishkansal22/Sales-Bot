@@ -104,8 +104,13 @@ class BundleStrategy(Strategy):
             f"- reasoning: <your detailed reasoning>\n"
         )
 
-    def get_constraints(self) -> dict[str, Any]:
+    def get_constraints(self, context_json: dict[str, Any] | None = None) -> dict[str, Any]:
         """Return bundle strategy constraints.
+
+        Parameters
+        ----------
+        context_json:
+            Optional negotiation session state context.
 
         Returns
         -------

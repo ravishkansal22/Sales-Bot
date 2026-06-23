@@ -44,7 +44,7 @@ class _LLMResponseOutput(BaseModel):
 _SYSTEM_PROMPT: str = """\
 You are a senior B2B sales representative crafting a response to a
 customer during an active negotiation.  You have been given a
-recommended strategy and context about the customer.
+recommended strategy, alternative runner-up strategies, and context about the customer.
 
 ### Rules
 
@@ -52,12 +52,10 @@ recommended strategy and context about the customer.
    profit margins, cost basis, or any backend metrics.
 2. The customer-facing response must be **natural, professional, and
    persuasive** — like a real salesperson would write.
-3. Align your response with the winning strategy:
-   - "discount" → present the discount as a special / limited offer.
-   - "hardline" → reinforce the value, justify the price.
-   - "bundle" → highlight the added value / extras included.
-   - "personalized" → use the specific factors from the reasoning.
-4. Address the customer's objection / sentiment directly.
+3. Align your response with the winning strategy, but also **use the alternative runner-up strategies** to construct a creative and helpful counter-offer.
+4. If the customer's request cannot be met by the winning strategy (e.g., they ask for a discount that exceeds what the winning strategy offers):
+   - Never end the conversation with only a rejection. If the request exceeds limits, explain the constraint and then offer the best available alternative (discount, bundles, quantity pricing, payment terms, accessories, etc.).
+   - All proposed concessions and alternatives MUST come from the simulation details and runner-up strategies provided in your prompt. Do NOT make up or hardcode unapproved concessions.
 5. Keep the customer response concise (2–4 paragraphs max).
 6. The internal reasoning should explain your thinking for the sales
    team — what you addressed, what you intentionally avoided, and
@@ -88,6 +86,13 @@ class ResponseGenerator:
         simulation: SimulationOutput,
         twin: DigitalTwinProfile,
         analysis: ConversationAnalysis,
+        runner_ups: list[SimulationOutput] | None = None,
+        list_price: float | None = None,
+        customer_message: str | None = None,
+        customer_persistence: int = 0,
+        last_topic: str | None = None,
+        previous_strategy: str | None = None,
+        quantity: int = 1,
     ) -> tuple[str, str]:
         """Generate a customer-facing response and internal reasoning.
 
@@ -103,6 +108,12 @@ class ResponseGenerator:
             The customer's digital-twin profile.
         analysis:
             The most recent conversation analysis.
+        runner_ups:
+            Optional list of top runner-up simulation outputs.
+        list_price:
+            The list price of the product under negotiation.
+        customer_message:
+            The raw text of the customer's last message.
 
         Returns
         -------
@@ -113,13 +124,40 @@ class ResponseGenerator:
             * ``internal_reasoning`` — sales-team-only notes.
         """
 
-        user_prompt = self._build_user_prompt(winner, simulation, twin, analysis)
-        result: _LLMResponseOutput = await self._llm.generate(
-            prompt=user_prompt,
-            system_prompt=_SYSTEM_PROMPT,
-            response_model=_LLMResponseOutput,
+        user_prompt = self._build_user_prompt(winner, simulation, twin, analysis, runner_ups, list_price)
+        
+        try:
+            result: _LLMResponseOutput = await self._llm.generate(
+                prompt=user_prompt,
+                system_prompt=_SYSTEM_PROMPT,
+                response_model=_LLMResponseOutput,
+            )
+            customer_response = result.customer_response
+            internal_reasoning = result.internal_reasoning
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("LLM response generation failed: %s. Using fallback formatter.", exc)
+            customer_response = ""
+            internal_reasoning = f"Deterministic response generated due to LLM error: {exc!s}"
+
+        # Centralize formatting: ALWAYS run final output through the SalesResponseFormatter
+        from app.core.sales_response_formatter import SalesResponseFormatter
+        final_customer_response = SalesResponseFormatter.format_response(
+            winning_strategy=winner.winning_strategy,
+            discount_percent=simulation.discount_percent,
+            bundle_concessions=simulation.concessions,
+            runner_ups=[r.strategy_name for r in runner_ups] if runner_ups else [],
+            list_price=list_price if list_price is not None else 0.0,
+            sub_intent=analysis.sub_intent,
+            customer_message=customer_message,
+            llm_draft=customer_response,
+            customer_persistence=customer_persistence,
+            last_topic=last_topic,
+            previous_strategy=previous_strategy,
+            quantity=quantity,
         )
-        return result.customer_response, result.internal_reasoning
+
+        return final_customer_response, internal_reasoning
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -131,6 +169,8 @@ class ResponseGenerator:
         simulation: SimulationOutput,
         twin: DigitalTwinProfile,
         analysis: ConversationAnalysis,
+        runner_ups: list[SimulationOutput] | None = None,
+        list_price: float | None = None,
     ) -> str:
         """Assemble the user prompt — deliberately omitting raw metrics.
 
@@ -147,6 +187,10 @@ class ResponseGenerator:
             Customer profile.
         analysis:
             Conversation analysis.
+        runner_ups:
+            Top runner-up strategies.
+        list_price:
+            The list price of the product.
 
         Returns
         -------
@@ -160,13 +204,36 @@ class ResponseGenerator:
         parts.append("## Recommended Strategy")
         parts.append(f"- Strategy: {winner.winning_strategy}")
         parts.append(f"- Offer Type: {simulation.offer_type}")
+        if list_price is not None:
+            parts.append(f"- List Price: ₹{list_price:,.2f}".replace(".00", ""))
         if simulation.discount_percent > 0:
             parts.append(f"- Discount: {simulation.discount_percent:.1f}%")
-        if simulation.bundle_value > 0:
-            parts.append(f"- Bundle Value Added: ${simulation.bundle_value:,.2f}")
+            if list_price is not None:
+                final_price = list_price * (1.0 - simulation.discount_percent / 100.0)
+                savings = list_price - final_price
+                parts.append(f"- Effective Price: ₹{final_price:,.2f}".replace(".00", ""))
+                parts.append(f"- Total Savings: ₹{savings:,.2f}".replace(".00", ""))
+        if simulation.concessions:
+            parts.append(f"- Concessions: {', '.join(simulation.concessions)}")
         parts.append(f"- Strategy Reasoning: {simulation.reasoning}")
         parts.append(f"- Winning Factors: {', '.join(winner.winning_factors)}")
         parts.append("")
+
+        # --- alternative strategies / runner-ups --------------------------
+        if runner_ups:
+            parts.append("## Alternative Strategies (Runner-ups)")
+            for i, r_sim in enumerate(runner_ups, 1):
+                parts.append(f"### Runner-up {i}: {r_sim.strategy_name}")
+                parts.append(f"- Offer Type: {r_sim.offer_type}")
+                if r_sim.discount_percent > 0:
+                    parts.append(f"- Discount: {r_sim.discount_percent:.1f}%")
+                    if list_price is not None:
+                        r_final_price = list_price * (1.0 - r_sim.discount_percent / 100.0)
+                        parts.append(f"- Effective Price: ₹{r_final_price:,.2f}".replace(".00", ""))
+                if r_sim.concessions:
+                    parts.append(f"- Concessions: {', '.join(r_sim.concessions)}")
+                parts.append(f"- Strategy Reasoning: {r_sim.reasoning}")
+            parts.append("")
 
         # --- customer context --------------------------------------------
         parts.append("## Customer Profile")
@@ -181,6 +248,8 @@ class ResponseGenerator:
         parts.append("## Current Conversation Context")
         parts.append(f"- Customer Objection: {analysis.objection_type}")
         parts.append(f"- Negotiation Intent: {analysis.negotiation_intent}")
+        if analysis.sub_intent:
+            parts.append(f"- Sub-Intent: {analysis.sub_intent}")
         parts.append(f"- Sentiment: {analysis.sentiment}")
         parts.append(f"- Urgency: {analysis.urgency:.2f}")
         parts.append(f"- Stage: {analysis.stage}")
@@ -194,3 +263,4 @@ class ResponseGenerator:
         )
 
         return "\n".join(parts)
+
