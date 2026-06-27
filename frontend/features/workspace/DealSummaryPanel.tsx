@@ -39,6 +39,19 @@ export default function DealSummaryPanel() {
   const confidencePct = Math.round(dealSummary.confidenceScore * 100);
   const strokeDashoffset = circumference - (confidencePct / 100) * circumference;
 
+  // [DIAG][6/6] Cart & summary render diagnostic — confirms which quantity and unit price
+  // are being displayed and will be sent on procurement lock.
+  const summaryQty = dealSummary.quantity ?? 1;
+  const summaryUnitPrice = dealSummary.currentAiOfferPrice;
+  const summaryTotalValue = summaryUnitPrice * summaryQty;
+  console.info(
+    `[DIAG][6/6] DEAL SUMMARY RENDER: product=${activeProduct.name}, ` +
+    `catalog_unit_price=${dealSummary.currentPrice}, ` +
+    `negotiated_unit_price=${summaryUnitPrice}, ` +
+    `quantity=${summaryQty}, ` +
+    `total_negotiated_value=${summaryTotalValue}`
+  );
+
   const getStatusColor = (status: string) => {
     const s = status.toLowerCase();
     if (s.includes('ratified') || s.includes('concluded') || s.includes('final')) return 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5';
@@ -121,10 +134,31 @@ export default function DealSummaryPanel() {
                 
                 <div className="p-3 bg-black/40 border border-white/5 rounded-lg text-left">
                   <span className="font-mono text-[8.5px] text-white/40 uppercase block leading-none">
-                    Calibrated Offer
+                    Calibrated Unit Price
                   </span>
                   <span className="font-mono text-sm font-bold text-cyan-glow block mt-1.5 leading-none">
-                    ₹{dealSummary.currentAiOfferPrice.toLocaleString()}
+                    ₹{summaryUnitPrice.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quantity & Total Negotiated Value */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-black/40 border border-white/5 rounded-lg text-left">
+                  <span className="font-mono text-[8.5px] text-white/40 uppercase block leading-none">
+                    Negotiated Qty
+                  </span>
+                  <span className="font-mono text-sm font-bold text-white block mt-1.5 leading-none">
+                    {summaryQty.toLocaleString()}
+                  </span>
+                </div>
+                
+                <div className="p-3 bg-black/40 border border-white/5 rounded-lg text-left">
+                  <span className="font-mono text-[8.5px] text-white/40 uppercase block leading-none">
+                    Total Value
+                  </span>
+                  <span className="font-mono text-sm font-bold text-emerald-400 block mt-1.5 leading-none">
+                    ₹{summaryTotalValue.toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -286,8 +320,16 @@ export default function DealSummaryPanel() {
                         </div>
 
                         <div className="flex justify-between mt-1 text-[10.5px] font-mono">
-                          <span className="text-white/40">CALIBRATED:</span>
+                          <span className="text-white/40">UNIT PRICE:</span>
                           <span className="text-cyan-glow font-bold">₹{item.negotiated_price.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between mt-0.5 text-[10.5px] font-mono">
+                          <span className="text-white/40">QTY × UNIT:</span>
+                          <span className="text-white/70">{item.quantity} × ₹{item.negotiated_price.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between mt-0.5 text-[10.5px] font-mono">
+                          <span className="text-white/40">LINE TOTAL:</span>
+                          <span className="text-emerald-400 font-bold">₹{(item.negotiated_price * item.quantity).toLocaleString()}</span>
                         </div>
                         
                         {item.concessions && item.concessions.length > 0 && (

@@ -193,7 +193,8 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
         setIsLoading(false);
         return;
       }
-      const activeQty = qtyOverride || quantity;
+      // Initial quantity fallback — the live-mode branch overwrites this from the backend.
+      const qtyFallback = qtyOverride ?? quantity;
       
       if (IS_DEMO_MODE) {
         stateManager.setOptimizationMode(currentMode);
@@ -251,6 +252,28 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
         }
         setTimelineEvents(timeline);
 
+        // --- QUANTITY SYNC: backend is the source of truth ---
+        // After every data load, the frontend quantity state is updated from the
+        // optimizer result's negotiatedQuantity field, which is derived directly
+        // from NegotiationContext.quantity on the backend.
+        // This prevents the frontend quantity from ever diverging from what was
+        // negotiated and stored in the database.
+        // Start from the qtyOverride (explicit caller intent) or the current state value.
+        let activeQty: number = qtyOverride ?? quantity;
+        if (opt && typeof opt.negotiatedQuantity === 'number' && opt.negotiatedQuantity >= 1) {
+          activeQty = opt.negotiatedQuantity;
+          // Only call setQuantity when the backend value differs from current state
+          // to avoid unnecessary re-renders.
+          setQuantity(prev => {
+            if (prev !== opt.negotiatedQuantity!) {
+              console.info(
+                `[DIAG][4→5/6] FRONTEND QUANTITY SYNCED from backend: prev=${prev}, backend=${opt.negotiatedQuantity}`
+              );
+            }
+            return opt.negotiatedQuantity!;
+          });
+        }
+
         let stock = 50;
         let minPrice = 0;
         try {
@@ -287,7 +310,9 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
         }
         setInventoryStatus(invStatus);
 
-        // Compile DealSummary dynamically in memory from simulations and winner
+        // Compile DealSummary dynamically in memory from simulations and winner.
+        // currentAiOfferPrice is always the UNIT price from the backend.
+        // quantity is the negotiated quantity synced from the backend context.
         if (sims.length > 0 && opt) {
           const winningSim = sims.find(s => s.id === opt.winningStrategyId);
           const isInitial = opt.winningStrategyId === 'none' || opt.winningStrategyId === 'initial';
@@ -297,6 +322,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
             ? Math.round(opt.currentDiscountPercent)
             : (isInitial ? 0 : (discountSim ? Math.round(discountSim.discountPercent ?? 0.0) : 15));
 
+          // currentOfferPrice from backend is always the UNIT negotiated price.
           const unitOffer = (opt && opt.currentOfferPrice !== undefined)
             ? opt.currentOfferPrice
             : (isInitial ? activeProd.price : (winningSim ? activeProd.price * (1.0 - (winningSim.discountPercent ?? 0.0) / 100.0) : activeProd.price));
@@ -311,6 +337,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
             currentPrice: activeProd.price,
             customerDiscountRequest: discountPct,
             currentAiOfferPrice: unitOffer,
+            quantity: activeQty,
             bundleItems: isInitial ? [] : (winningSim?.concessions || (winningSim?.id === 's_bundle' ? ["Premium English Willow Care Kit", "Dynamic Matrix Scale Grip"] : [])),
             status: chatMsgs.length > 2 ? "Negotiation Active" : "Negotiation Initiated",
             closeProbability: isInitial ? 0.9 : (winningSim?.closeProbability ?? 0.88),
@@ -327,6 +354,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
             currentPrice: activeProd.price,
             customerDiscountRequest: 0,
             currentAiOfferPrice: activeProd.price,
+            quantity: activeQty,
             bundleItems: [],
             status: chatMsgs.length > 2 ? "Negotiation Active" : "Negotiation Initiated",
             closeProbability: 0.88,
@@ -407,6 +435,20 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
 
   // Product selector reset
   const selectProduct = async (productId: string) => {
+    // --- PRODUCT SWITCH RESET ---
+    // Synchronously clear all negotiation-specific state before the async product
+    // initialization begins. This guarantees that no stale data from the previous
+    // product (quantity, discount, offer price, simulations, messages) is ever
+    // visible while the new product context is loading.
+    setQuantity(1);
+    setDealSummary(null);
+    setSimulations([]);
+    setOptimizerResult(null);
+    setMessages([]);
+    setTimelineEvents([]);
+    setSelectedStrategyId(null);
+    setInventoryStatus(null);
+    setNearMinimumPrice(false);
     setIsLoading(true);
     
     if (IS_DEMO_MODE) {
@@ -416,13 +458,16 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
       await loadAllData(optimizationMode, null, null, true);
     } else {
       try {
-        // Initialize negotiation by calling the new endpoint POST /api/v1/workspace/select-product
+        // Initialize negotiation context for the newly selected product.
+        // Always start with quantity=1 — the customer has not expressed a quantity
+        // for this product yet. The quantity will be updated via extract_quantity
+        // as the negotiation conversation progresses.
         const res = await apiFetch<any>('/workspace/select-product', {
           method: 'POST',
           body: JSON.stringify({
             customer_id: customerId,
             product_id: productId,
-            quantity: quantity
+            quantity: 1
           })
         });
 
@@ -439,7 +484,12 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
           setActiveProduct(resolvedProd);
           
           if (res.deal_summary) {
-            setDealSummary(res.deal_summary);
+            // Build a clean initial DealSummary for the new product.
+            // quantity is always 1 here — no negotiation has happened yet.
+            setDealSummary({
+              ...res.deal_summary,
+              quantity: 1,
+            });
           }
           
           if (res.digital_twin) {
@@ -455,8 +505,9 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
             });
           }
           
-          // Force a full reload of messages, twin profiles, history, and timeline events
-          await loadAllData(optimizationMode, resolvedProd, quantity, true);
+          // Full reload with qtyOverride=1 — ensures loadAllData uses the clean
+          // starting quantity and does not carry over the previous product's quantity.
+          await loadAllData(optimizationMode, resolvedProd, 1, true);
         }
       } catch (err) {
         console.error("Failed to select product and initialize workspace context", err);
@@ -532,16 +583,26 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
     if (!dealSummary || !activeProd) return;
     try {
       const strategy = selectedStrategyId || 'balanced';
+      // currentAiOfferPrice is always the UNIT negotiated price from the backend.
       const negotiated_price = dealSummary.currentAiOfferPrice;
+      // quantity is synced from backend NegotiationContext via opt.negotiatedQuantity.
+      const negotiated_quantity = dealSummary.quantity;
       const concessions = dealSummary.bundleItems || [];
       const confidence_score = dealSummary.confidenceScore || 0.9;
-      
+
+      console.info(
+        `[DIAG][5/6] PROCUREMENT LOCK PAYLOAD: product_id=${activeProd.id}, ` +
+        `negotiated_unit_price=${negotiated_price}, quantity=${negotiated_quantity}, ` +
+        `total_negotiated_value=${negotiated_price * negotiated_quantity}, ` +
+        `catalog_unit_price=${dealSummary.currentPrice}, strategy=${strategy}`
+      );
+
       const response = await apiFetch<any>('/procurement/lock', {
         method: 'POST',
         body: JSON.stringify({
           customer_id: customerId,
           product_id: activeProd.id,
-          quantity: quantity,
+          quantity: negotiated_quantity,
           negotiated_price,
           concessions,
           strategy,
@@ -554,7 +615,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
     } catch (err) {
       console.error("Failed to lock deal", err);
     }
-  }, [customerId, quantity, dealSummary, selectedStrategyId, loadCart]);
+  }, [customerId, dealSummary, selectedStrategyId, loadCart]);
 
   const removeFromCart = useCallback(async (dealId: string) => {
     if (IS_DEMO_MODE) return;

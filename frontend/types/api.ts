@@ -43,6 +43,8 @@ export interface OptimizerResult {
   optimizerReasoning: string;
   currentDiscountPercent?: number;
   currentOfferPrice?: number;
+  /** Negotiated quantity sourced from backend NegotiationContext — frontend must sync to this. */
+  negotiatedQuantity?: number;
 }
 
 export interface Message {
@@ -91,7 +93,8 @@ export interface DealSummary {
   selectedProductId: string | null;
   currentPrice: number;
   customerDiscountRequest: number; // e.g. 15 for 15%
-  currentAiOfferPrice: number;
+  currentAiOfferPrice: number;    // always the UNIT negotiated price
+  quantity: number;               // negotiated quantity from backend context
   bundleItems: string[];
   status: string;
   closeProbability: number;

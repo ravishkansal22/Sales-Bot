@@ -242,23 +242,55 @@ def extract_discount_request(message: str) -> float | None:
     return None
 
 def extract_quantity(message: str) -> int | None:
+    """Extract a purchase quantity from a customer message using generic patterns.
+
+    Supports common B2B procurement phrasings without any product-specific logic.
+    Returns the first positive integer found, or None if no quantity is detected.
+    """
     msg_lower = message.lower()
-    patterns = [
-        r"buy\s+(\d+)",
-        r"quantity\s+(\d+)",
-        r"need\s+(\d+)",
-        r"(\d+)\s*units?",
-        r"(\d+)\s*pieces?"
+    # Generic verb-then-number patterns (e.g. "I want 50", "buy 20", "order 100")
+    verb_patterns = [
+        r"\bbuy\s+(\d+)",
+        r"\bwant\s+(\d+)",
+        r"\bneed\s+(\d+)",
+        r"\border\s+(\d+)",
+        r"\bpurchase\s+(\d+)",
+        r"\bget\s+(\d+)",
+        r"\btake\s+(\d+)",
+        r"\bquantity\s+(\d+)",
+        r"\bquantity\s+of\s+(\d+)",
+        r"\bquote\s+for\s+(\d+)",
     ]
-    for pattern in patterns:
+    # Generic number-then-unit patterns (e.g. "50 units", "20 pieces", "100 items")
+    unit_patterns = [
+        r"(\d+)\s*units?",
+        r"(\d+)\s*pieces?",
+        r"(\d+)\s*items?",
+        r"(\d+)\s*copies",
+        r"(\d+)\s*nos?\.?",
+        r"(\d+)\s*numbers?",
+        r"(\d+)\s*qty",
+    ]
+    all_patterns = verb_patterns + unit_patterns
+    for pattern in all_patterns:
         match = re.search(pattern, msg_lower)
         if match:
             try:
                 val = int(match.group(1))
                 if val > 0:
+                    logger.info(
+                        "[DIAG][1/6] QUANTITY EXTRACTED from message. "
+                        "Pattern=%r, ExtractedQty=%d, Message=%r",
+                        pattern, val, message[:120]
+                    )
                     return val
             except ValueError:
                 pass
+    logger.info(
+        "[DIAG][1/6] QUANTITY EXTRACTED from message. "
+        "No pattern matched — returning None. Message=%r",
+        message[:120]
+    )
     return None
 
 def detect_walkaway(message: str) -> bool:
@@ -1167,11 +1199,15 @@ async def chat(
             neg_context = res.scalars().first()
 
         quantity = request.quantity
-        
+
         # Determine quantity, walkaway, and competitor signals deterministically from message
         extracted_qty = extract_quantity(request.message)
         if extracted_qty is not None:
             quantity = extracted_qty
+        logger.info(
+            "[DIAG][1/6] QUANTITY RESOLUTION: request.quantity=%d, extracted_qty=%s, resolved_quantity=%d",
+            request.quantity, extracted_qty, quantity
+        )
         
         walkaway = detect_walkaway(request.message)
         competitor = detect_competitor_pressure(request.message)
@@ -1210,9 +1246,18 @@ async def chat(
         else:
             product = await ProductService.get_product_by_id(db, neg_context.product_id)
             if extracted_qty is None:
+                # No new quantity in this message — carry forward the stored context quantity
                 quantity = neg_context.quantity
+                logger.info(
+                    "[DIAG][2/6] QUANTITY IN NegotiationContext (carried forward): qty=%d, customer_id=%s",
+                    quantity, str(customer.id)
+                )
             else:
                 neg_context.quantity = quantity
+                logger.info(
+                    "[DIAG][2/6] QUANTITY STORED IN NegotiationContext (updated): qty=%d, customer_id=%s",
+                    quantity, str(customer.id)
+                )
 
         # Parse discount requests
         parsed_discount = extract_discount_request(request.message)
@@ -1220,6 +1265,10 @@ async def chat(
             neg_context.requested_discount = parsed_discount
         if neg_context:
             neg_context.quantity = quantity
+            logger.info(
+                "[DIAG][2/6] QUANTITY CONFIRMED IN NegotiationContext: final_qty=%d, customer_id=%s",
+                neg_context.quantity, str(customer.id)
+            )
 
         if product:
             deal_value = product.selling_price * quantity
@@ -1496,7 +1545,11 @@ async def chat(
                     winning_sim.discount_percent = winner.actual_offer_discount
 
             # Discount progression memory (applied before response generation so it is exposed)
-            if neg_context and winner.winning_strategy == "discount" and winning_sim is not None:
+            if (
+                neg_context
+                and winning_sim is not None
+                and winning_sim.discount_percent > 0
+            ):
                 context_dict = dict(neg_context.context_json) if neg_context.context_json else {}
                 previous_discount = context_dict.get("last_discount_offered", 0.0)
                 new_discount = max(previous_discount, winning_sim.discount_percent)
@@ -1570,22 +1623,48 @@ async def chat(
 
         # -- 12. Update NegotiationContext ------------------------------------
         if neg_context:
-            neg_context.current_offer = deal_value * (1.0 - winning_sim.discount_percent / 100.0)
-            if deal_value > 0.0:
-                if winning_sim.discount_percent == 0.0:
-                    neg_context.current_offer = deal_value
-                if neg_context.current_offer <= 0.0:
-                    neg_context.current_offer = deal_value
+            # Store the UNIT negotiated price — not the total deal value.
+            # deal_value = selling_price * quantity (total), so we derive the unit price
+            # directly from the product's selling_price and the discount percent.
+            # This ensures the frontend always receives a per-unit price it can multiply
+            # by any quantity to reconstruct the total value.
+            if product is not None:
+                unit_offer_price = product.selling_price * (1.0 - winning_sim.discount_percent / 100.0)
+            else:
+                # Fallback: divide total by quantity when product is unavailable
+                raw_total = deal_value * (1.0 - winning_sim.discount_percent / 100.0)
+                unit_offer_price = raw_total / max(quantity, 1)
+
+            if winning_sim.discount_percent == 0.0 and product is not None:
+                unit_offer_price = product.selling_price
+            if unit_offer_price <= 0.0 and product is not None:
+                unit_offer_price = product.selling_price
+
+            neg_context.current_offer = unit_offer_price
 
             neg_context.current_strategy = winner.winning_strategy
             neg_context.negotiation_stage = analysis.stage
-            
+
             # Save the chosen strategy to previous_strategies history list and update counters
             context_dict = dict(neg_context.context_json) if neg_context.context_json else {}
-            
-            # Save final negotiation pricing parameters to context_json for catalog synchronization
+
+            # Save final negotiation pricing parameters to context_json for catalog synchronization.
+            # current_offer_price is always the UNIT price; total = current_offer_price * negotiated_quantity.
             context_dict["current_discount_percent"] = winning_sim.discount_percent
-            context_dict["current_offer_price"] = neg_context.current_offer
+            context_dict["current_offer_price"] = unit_offer_price
+            context_dict["negotiated_quantity"] = neg_context.quantity
+
+            logger.info(
+                "[DIAG][3/6] QUANTITY & UNIT PRICE STORED IN context_json: "
+                "negotiated_quantity=%d, unit_offer_price=%.2f, discount=%.2f%%, "
+                "catalog_unit_price=%.2f, total_negotiated_value=%.2f, customer_id=%s",
+                neg_context.quantity,
+                unit_offer_price,
+                winning_sim.discount_percent,
+                product.selling_price if product else 0.0,
+                unit_offer_price * neg_context.quantity,
+                str(customer.id)
+            )
             
             if winner.winning_strategy == "bundle":
                 offered_concessions = context_dict.get("offered_concessions", [])
@@ -1597,10 +1676,33 @@ async def chat(
                 bundle_offer_count = context_dict.get("bundle_offer_count", 0)
                 context_dict["bundle_offer_count"] = bundle_offer_count + 1
                 
-            elif winner.winning_strategy == "discount":
-                discount_offer_count = context_dict.get("discount_offer_count", 0)
-                context_dict["discount_offer_count"] = discount_offer_count + 1
-                context_dict["last_discount_offered"] = winning_sim.discount_percent
+            if winning_sim.discount_percent > 0:
+                discount_offer_count = context_dict.get(
+                    "discount_offer_count",
+                    0
+                )
+
+                context_dict["discount_offer_count"] = (
+                    discount_offer_count + 1
+                )
+
+                context_dict["last_discount_offered"] = max(
+                    context_dict.get("last_discount_offered", 0.0),
+                    winning_sim.discount_percent
+                )
+
+                discount_history = context_dict.get(
+                    "discount_progression_history",
+                    []
+                )
+
+                discount_history.append(
+                    winning_sim.discount_percent
+                )
+
+                context_dict["discount_progression_history"] = (
+                    discount_history
+                )
                 
             prev_strategies = context_dict.get("previous_strategies", [])
             if winner.winning_strategy != "none":

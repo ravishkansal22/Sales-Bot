@@ -48,7 +48,10 @@ export function mapBackendOptimizerResult(winner: any): OptimizerResult {
     winningFactors: winner.winning_factors || ['Highest expected value'],
     optimizerReasoning: winner.optimizer_reasoning || 'Selected as the most balanced option based on simulated expected profit and risk.',
     currentDiscountPercent: winner.current_discount_percent !== undefined ? winner.current_discount_percent : winner.actual_offer_discount,
-    currentOfferPrice: winner.current_offer_price !== undefined ? winner.current_offer_price : winner.actual_offer_price
+    currentOfferPrice: winner.current_offer_price !== undefined ? winner.current_offer_price : winner.actual_offer_price,
+    // negotiated_quantity is the authoritative backend quantity for this negotiation session.
+    // The frontend must sync its quantity state to this value after every loadAllData call.
+    negotiatedQuantity: typeof winner.negotiated_quantity === 'number' ? winner.negotiated_quantity : undefined,
   };
 }
 
