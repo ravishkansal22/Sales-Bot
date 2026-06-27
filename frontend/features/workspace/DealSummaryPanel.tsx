@@ -112,7 +112,7 @@ export default function DealSummaryPanel() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 bg-black/40 border border-white/5 rounded-lg text-left">
                   <span className="font-mono text-[8.5px] text-white/40 uppercase block leading-none">
-                    Request Discount
+                    APPROVED DISCOUNT
                   </span>
                   <span className="font-mono text-sm font-bold text-amber-400 block mt-1.5 leading-none">
                     {dealSummary.customerDiscountRequest}%

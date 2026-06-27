@@ -209,6 +209,16 @@ def is_discovery_escape(message: str) -> bool:
     return False
 
 
+def is_discount_explanation_query(message: str) -> bool:
+    """Check if the user is asking for an explanation of their current discount or savings."""
+    msg_lower = message.lower()
+    # Must ask for amount/percent of discount or savings or price explicitly, but not just asking if discount exists
+    has_ask_words = any(w in msg_lower for w in ["how", "what", "amount", "percent", "percentage", "value"])
+    has_target_words = any(w in msg_lower for w in ["discount", "saving", "price", "offered"])
+    is_simple_query = "is there" in msg_lower or "any discount" in msg_lower
+    return has_ask_words and has_target_words and not is_simple_query
+
+
 def is_negotiation_message(message: str) -> bool:
     msg_lower = message.lower()
     keywords = ["discount", "price", "competitor", "cheaper", "off", "offer", "counteroffer", "counter-offer"]
@@ -219,20 +229,6 @@ def is_negotiation_message(message: str) -> bool:
     if re.search(r"\d+\s*%", msg_lower):
         return True
     return False
-
-def is_discount_explanation_query(message: str) -> bool:
-    msg_lower = message.lower()
-    keywords = [
-        "how much discount",
-        "discount percentage",
-        "what percent discount",
-        "current offer",
-        "current price",
-        "savings",
-        "how much am i saving",
-        "how much percent"
-    ]
-    return any(kw in msg_lower for kw in keywords)
 
 def extract_discount_request(message: str) -> float | None:
     match = re.search(r"(\d+(?:\.\d+)?)\s*(?:%|percent)", message, re.IGNORECASE)
@@ -333,6 +329,20 @@ async def chat(
         # Pre-resolve product if context exists or product_id is provided
         neg_context = None
         is_mock = (hasattr(db, "_mock_return_value") or type(db).__name__ in ("MagicMock", "Mock", "AsyncMock")) and not db.__dict__.get("_force_context", False)
+        if (
+            neg_context
+            and neg_context.context_json
+            and neg_context.context_json.get("deal_closed")
+        ):
+            return ChatResponse(
+                response=(
+                    "This agreement has already been finalized "
+                    "using the previously accepted commercial terms.\n\n"
+                    "You may proceed to procurement or reopen "
+                    "the negotiation if required."
+                ),
+                intent="acceptance"
+            )
         if not is_mock:
             stmt = select(NegotiationContext).where(NegotiationContext.customer_id == customer.id)
             res = await db.execute(stmt)
@@ -354,34 +364,48 @@ async def chat(
             except ValueError:
                 product = await ProductService.get_product_by_external_id(db, request.product_id)
 
-        # Route custom non-negotiation intents
+        # Handle discount explanation bypass
         if is_discount_explanation_query(request.message):
-            list_price = product.selling_price if product else 0.0
-            
-            # Fetch current offer and discount percent from neg_context
-            current_discount_percent = 0.0
-            current_offer_price = list_price
+            # Retrieve latest snapshot / context to get current discount and offer price
+            discount_pct = 0.0
+            offer_price = product.selling_price if product else 0.0
             if neg_context and neg_context.context_json:
-                current_discount_percent = neg_context.context_json.get("current_discount_percent", 0.0)
-                current_offer_price = neg_context.context_json.get("current_offer_price", list_price)
-                
-            savings = list_price - current_offer_price
+                discount_pct = neg_context.context_json.get("current_discount_percent", 0.0) or 0.0
+                offer_price = neg_context.context_json.get("current_offer_price", 0.0) or 0.0
+            elif neg_context:
+                offer_price = neg_context.current_offer
+                discount_pct = round((1.0 - offer_price / (product.selling_price if product else 1.0)) * 100.0, 2)
+            
+            savings = (product.selling_price if product else offer_price) - offer_price
+            pct_str = f"{int(discount_pct)}" if discount_pct == int(discount_pct) else f"{discount_pct}"
+            list_price_str = f"{int(product.selling_price)}" if product else "0"
+            offer_price_str = f"{int(offer_price)}" if offer_price == int(offer_price) else f"{offer_price}"
+            savings_str = f"{int(savings)}" if savings == int(savings) else f"{savings}"
+
             response_text = (
-                f"Current commercial proposal represents a {current_discount_percent:.0f}% discount.\n\n"
-                f"List Price: ₹{list_price:.0f}\n"
-                f"Current Price: ₹{current_offer_price:.0f}\n"
-                f"Savings: ₹{savings:.0f}"
+                f"Current commercial proposal represents a {pct_str}% discount.\n"
+                f"• List Price: \u20b9{list_price_str}\n"
+                f"• Current Price: \u20b9{offer_price_str}\n"
+                f"• Savings: \u20b9{savings_str}"
             )
             
+            # Mock a welcome-like response to return
+            existing_snapshot = await _load_latest_twin_snapshot(db, customer.id)
+            digital_twin = _snapshot_to_twin_profile(existing_snapshot) if existing_snapshot else DigitalTwinProfile(price_sensitivity=0.5, urgency=0.5, risk_aversion=0.5, brand_loyalty=0.5, decision_speed=0.5)
+            
+            winner = OptimizerResult(
+                winning_strategy="initial",
+                score=1.0,
+                optimization_mode=OptimizationMode.BALANCED,
+                optimizer_reasoning="Discount explanation query answered directly.",
+                winning_factors=["Bypass Mode"],
+                risk_score=0.0,
+                confidence_score=1.0,
+                all_rankings=[]
+            )
+
             # Save user message
-            user_analysis = {
-                "objection_type": "none",
-                "negotiation_intent": "information_gathering",
-                "urgency": 0.5,
-                "sentiment": "neutral",
-                "stage": "consideration",
-                "intent_type": "discount_explanation"
-            }
+            user_analysis = {"objection_type": "none", "negotiation_intent": "information_gathering", "urgency": 0.5, "sentiment": "neutral", "stage": "discovery"}
             if request.client_message_id:
                 user_analysis["client_message_id"] = request.client_message_id
             user_turn = Conversation(
@@ -400,51 +424,26 @@ async def chat(
                 customer_id=customer.id,
                 message=response_text,
                 role="assistant",
-                analysis={"intent_type": "discount_explanation"},
+                analysis=None,
                 created_at=datetime.now(UTC)
             )
             db.add(assistant_turn)
             await db.commit()
-
-            # Build response parameters
-            existing_snapshot = await _load_latest_twin_snapshot(db, customer.id)
-            digital_twin = _snapshot_to_twin_profile(existing_snapshot) if existing_snapshot else DigitalTwinProfile(price_sensitivity=0.5, urgency=0.5, risk_aversion=0.5, brand_loyalty=0.5, decision_speed=0.5)
             
-            winner = OptimizerResult(
-                winning_strategy="discount" if current_discount_percent > 0 else "initial",
-                score=1.0,
-                optimization_mode=OptimizationMode.BALANCED,
-                optimizer_reasoning="Discount explanation query answered from context.",
-                winning_factors=["Discount Explanation Handler"],
-                risk_score=0.0,
-                confidence_score=1.0,
-                all_rankings=[],
-                current_discount_percent=current_discount_percent,
-                current_offer_price=current_offer_price
-            )
-
-            stock = product.stock_quantity if product else 50
-            inventory_status = "Available"
-            if stock < 20:
-                inventory_status = "Low Inventory"
-            elif stock >= 100:
-                inventory_status = "High Inventory"
-            else:
-                inventory_status = "Limited Availability"
-
             return ChatResponse(
                 digital_twin=digital_twin,
                 simulations=[],
                 winner=winner,
                 response=response_text,
-                internal_reasoning="Discount explanation query bypassed simulation engine.",
+                internal_reasoning="Discount explanation query bypassed standard simulations.",
                 intent_type="discount_explanation",
-                inventory_status=inventory_status,
+                inventory_status="Available",
                 near_minimum_price=False,
                 client_message_id=request.client_message_id,
                 assistant_message_id=str(assistant_turn.id)
             )
 
+        # Route custom non-negotiation intents
         if classification.intent == "commercial_terms":
             # Save user message
             user_analysis = {
@@ -934,6 +933,111 @@ async def chat(
                 client_message_id=request.client_message_id,
                 assistant_message_id=str(assistant_turn.id)
             )
+        elif classification.intent == "acceptance":
+
+            context_dict: dict[str, Any] = {}
+            if neg_context:
+                context_dict = dict(neg_context.context_json or {})
+
+                context_dict["deal_closed"] = True
+                context_dict["negotiation_status"] = "accepted"
+
+                context_dict["accepted_offer_price"] = (
+                    context_dict.get("current_offer_price")
+                )
+
+                context_dict["accepted_discount_percent"] = (
+                    context_dict.get("current_discount_percent")
+                )
+
+                context_dict["accepted_strategy"] = (
+                    context_dict.get("current_strategy")
+                )
+
+                neg_context.context_json = context_dict
+
+                if hasattr(neg_context, "stage"):
+                    neg_context.stage = "closed"
+
+                await db.commit()
+
+            response_text = (
+                "Excellent. The proposal has been accepted and "
+                "the agreement has been secured.\n\n"
+                f"Accepted Commercial Terms:\n"
+                f"• Final Price: ₹{context_dict.get('accepted_offer_price', 0):,.2f}\n"
+                f"• Discount: {context_dict.get('accepted_discount_percent', 0):.1f}%\n"
+                f"• Strategy: {context_dict.get('accepted_strategy', 'Negotiated Offer')}\n\n"
+                "The agreement is now ready for procurement processing."
+            )
+
+            # Build minimal schema-valid sentinel objects required by ChatResponse.
+            # These carry no synthetic pricing data — they reflect only what was
+            # already accepted and stored in context.
+            _accepted_price = float(context_dict.get("accepted_offer_price") or 0.0)
+            _accepted_discount = float(context_dict.get("accepted_discount_percent") or 0.0)
+            _accepted_strategy = str(context_dict.get("accepted_strategy") or "none")
+
+            _sentinel_twin = DigitalTwinProfile(
+                price_sensitivity=0.0,
+                urgency=0.0,
+                risk_aversion=0.0,
+                brand_loyalty=0.0,
+                decision_speed=0.0,
+            )
+            _sentinel_sim = SimulationOutput(
+                strategy_name=_accepted_strategy,
+                offer_type="acceptance",
+                discount_percent=_accepted_discount,
+                bundle_value=0.0,
+                reasoning="Deal accepted by customer. No further simulation required.",
+                rollouts=[],
+                average_close_probability=1.0,
+                average_risk_score=0.0,
+                average_expected_profit=_accepted_price,
+                average_expected_value=_accepted_price,
+                average_gross_margin_retention=1.0,
+            )
+            _sentinel_winner = OptimizerResult(
+                winning_strategy=_accepted_strategy,
+                score=1.0,
+                optimization_mode=OptimizationMode.BALANCED,
+                optimizer_reasoning="Deal closed. Customer accepted the negotiated offer.",
+                winning_factors=["Customer accepted offer"],
+                risk_score=0.0,
+                confidence_score=1.0,
+                all_rankings=[],
+                actual_offer_discount=_accepted_discount,
+                actual_offer_price=_accepted_price,
+                current_discount_percent=_accepted_discount,
+                current_offer_price=_accepted_price,
+            )
+            assistant_turn = Conversation(
+                id=uuid.uuid4(),
+                customer_id=customer.id,
+                message=response_text,
+                role="assistant",
+                analysis={
+                    "intent_type": "acceptance"
+                },
+                created_at=datetime.now(UTC),
+            )
+
+            db.add(assistant_turn)
+
+            await db.commit()
+
+            return ChatResponse(
+                digital_twin=_sentinel_twin,
+                simulations=[_sentinel_sim],
+                winner=_sentinel_winner,
+                response=response_text,
+                internal_reasoning="Acceptance intent detected. Deal marked as closed.",
+                intent_type="acceptance",
+                client_message_id=request.client_message_id,
+                assistant_message_id=str(assistant_turn.id) if assistant_turn else None,
+            )
+
 
         # -- Product Discovery Check ------------------------------------------
         is_product_discovery = False
@@ -1081,18 +1185,13 @@ async def chat(
                         product = await ProductService.get_product_by_id(db, prod_uuid)
                     except ValueError:
                         product = await ProductService.get_product_by_external_id(db, request.product_id)
-                if not product and not is_mock:
-                    popular = await ProductService.search_products(db, "", limit=1)
-                    product = popular[0] if popular else None
+                if not product:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No active product selected."
+                    )
                 
                 if product:
-                    initial_context_json = {
-                        "current_offer_price": float(product.selling_price),
-                        "current_discount_percent": 0.0,
-                        "current_strategy": "initial",
-                        "current_customer_requested_discount": 0.0,
-                        "offer_history": []
-                    }
                     neg_context = NegotiationContext(
                         id=uuid.uuid4(),
                         customer_id=customer.id,
@@ -1102,7 +1201,7 @@ async def chat(
                         requested_discount=0.0,
                         current_strategy="hardline",
                         negotiation_stage="initiated",
-                        context_json=initial_context_json,
+                        context_json={},
                     )
                     if not is_mock:
                         db.add(neg_context)
@@ -1124,7 +1223,7 @@ async def chat(
 
         if product:
             deal_value = product.selling_price * quantity
-            cost_basis = product.cost_price * quantity
+            cost_basis = (product.cost_price if product.cost_price is not None else product.selling_price * 0.70) * quantity
         else:
             deal_value = request.deal_value
             cost_basis = request.cost_basis
@@ -1163,10 +1262,8 @@ async def chat(
             # Evolve state fields
             if parsed_discount is not None:
                 context_dict["requested_discount"] = parsed_discount
-                context_dict["current_customer_requested_discount"] = parsed_discount
             else:
                 context_dict.setdefault("requested_discount", 0.0)
-                context_dict.setdefault("current_customer_requested_discount", 0.0)
                 
             context_dict["mentioned_quantity"] = quantity
             context_dict["quantity"] = quantity
@@ -1295,8 +1392,6 @@ async def chat(
                     has_pricing_request = True
                     break
 
-        # -- 9. Strategy optimisation (deterministic) -------------------------
-        t0 = time.perf_counter()
         # Calculate dynamic ceiling
         dynamic_ceiling = 0.0
         if product:
@@ -1309,6 +1404,36 @@ async def chat(
                 context_json=neg_context.context_json if neg_context else None
             )
 
+        # -- 9. Strategy optimisation (deterministic) -------------------------
+        t0 = time.perf_counter()
+        
+        # Structured Diagnostics Logs
+        logger.info(
+            "[DIAGNOSTICS - PRODUCT RESOLUTION] Product ID: %s, Name: %s, Selling Price: %s",
+            product.id if product else None,
+            product.name if product else None,
+            product.selling_price if product else None
+        )
+        logger.info(
+            "[DIAGNOSTICS - DEAL VALUE GENERATION] Quantity: %d, Deal Value: %s, Cost Basis: %s",
+            neg_context.quantity if neg_context else quantity,
+            deal_value,
+            cost_basis
+        )
+        logger.info(
+            "[DIAGNOSTICS - DYNAMIC CEILING] Calculated dynamic ceiling: %.2f%%",
+            dynamic_ceiling
+        )
+        last_discount_offered = 0.0
+
+        if neg_context and neg_context.context_json:
+            last_discount_offered = (
+                neg_context.context_json.get(
+                    "last_discount_offered",
+                    0.0
+                )
+            )
+
         winner = StrategyOptimizer.optimize(
             simulations,
             stock_quantity=product.stock_quantity if product else 50,
@@ -1318,14 +1443,31 @@ async def chat(
             dynamic_ceiling=dynamic_ceiling,
             list_price=product.selling_price if product else 0.0,
             requested_discount_percent=parsed_discount if parsed_discount is not None else 0.0,
+            last_discount_offered=last_discount_offered,
         )
         winner.concessions = generate_concessions(product.category if product else None, winner.winning_strategy, product.name if product else None, neg_context.context_json if neg_context else None)
         elapsed_so = time.perf_counter() - t0
         logger.info(f"Strategy Optimizer took {elapsed_so:.4f}s")
 
+        # Structured Diagnostics Logs for Strategy Optimization Results
+        logger.info(
+            "[DIAGNOSTICS - STRATEGY OPTIMIZATION RESULTS] Winner Strategy: %s, "
+            "Optimizer Discount: %.2f%%, Actual Price: %.2f",
+            winner.winning_strategy, winner.actual_offer_discount, winner.actual_offer_price
+        )
+
         # -- 10. Generate response ---------------------------------------------
         t0 = time.perf_counter()
         winning_sim = None
+
+        # Populate raw/actual discount percents for all simulations to preserve explainability
+        for sim in simulations:
+            sim.raw_discount_percent = sim.discount_percent
+            if sim.strategy_name == winner.winning_strategy:
+                sim.actual_discount_percent = winner.actual_offer_discount
+            else:
+                sim.actual_discount_percent = sim.discount_percent
+
         if winner.winning_strategy == "none":
             winning_sim = SimulationOutput(
                 strategy_name="none",
@@ -1339,26 +1481,25 @@ async def chat(
                 average_expected_profit=(deal_value - cost_basis) if (deal_value is not None and cost_basis is not None) else 0.0,
                 average_expected_value=deal_value if deal_value is not None else 0.0,
                 average_gross_margin_retention=1.0,
-                concessions=[]
+                concessions=[],
+                raw_discount_percent=0.0,
+                actual_discount_percent=0.0
             )
         else:
             winning_sim = _find_winning_simulation(
                 simulations, winner.winning_strategy
             )
             
-            # Apply clamped discount from optimizer
-            if winning_sim and (winning_sim.discount_percent > 0.0 or winner.winning_strategy == "discount"):
-                winning_sim.discount_percent = winner.actual_offer_discount
+            # Apply ceiling discount for downstream formatting/response generation
+            if winning_sim:
+                if winning_sim.discount_percent > 0.0 or winner.winning_strategy == "discount":
+                    winning_sim.discount_percent = winner.actual_offer_discount
 
             # Discount progression memory (applied before response generation so it is exposed)
-            if neg_context and winner.winning_strategy == "discount":
+            if neg_context and winner.winning_strategy == "discount" and winning_sim is not None:
                 context_dict = dict(neg_context.context_json) if neg_context.context_json else {}
                 previous_discount = context_dict.get("last_discount_offered", 0.0)
-                current_req = context_dict.get("current_customer_requested_discount", 0.0) or 0.0
                 new_discount = max(previous_discount, winning_sim.discount_percent)
-                if current_req > 0.0:
-                    new_discount = min(new_discount, current_req)
-                
                 winning_sim.discount_percent = new_discount
                 context_dict["last_discount_offered"] = new_discount
                 
@@ -1366,56 +1507,6 @@ async def chat(
                 discount_history.append(new_discount)
                 context_dict["discount_progression_history"] = discount_history
                 neg_context.context_json = context_dict
-
-        # Expose current negotiated values and update offer history
-        if neg_context:
-            context_dict = dict(neg_context.context_json) if neg_context.context_json else {}
-            
-            # Extract final discount percent and strategy
-            current_discount = context_dict.get("last_discount_offered", 0.0)
-            if winner.winning_strategy == "discount":
-                current_discount = winning_sim.discount_percent
-            elif winner.winning_strategy in ("none", "initial"):
-                current_discount = 0.0
-            elif winning_sim:
-                current_discount = winning_sim.discount_percent
-            
-            # Expose on winner/context_json
-            context_dict["current_discount_percent"] = float(current_discount)
-            
-            unit_price = product.selling_price if product else 0.0
-            current_offer_price = unit_price * (1.0 - current_discount / 100.0)
-            context_dict["current_offer_price"] = float(current_offer_price)
-            context_dict["current_strategy"] = winner.winning_strategy
-            
-            # Check if offer history exists, if not initialize
-            history_list = context_dict.get("offer_history", [])
-            
-            # Append if new offer differs from the previous one
-            new_offer = {
-                "discount": float(current_discount),
-                "price": float(current_offer_price),
-                "strategy": str(winner.winning_strategy),
-                "created_at": datetime.now(UTC).isoformat()
-            }
-            
-            should_append = True
-            if history_list:
-                last_offer = history_list[-1]
-                if (abs(last_offer.get("discount", 0.0) - new_offer["discount"]) < 1e-5 and
-                    abs(last_offer.get("price", 0.0) - new_offer["price"]) < 1e-5 and
-                    last_offer.get("strategy") == new_offer["strategy"]):
-                    should_append = False
-            
-            if should_append:
-                history_list.append(new_offer)
-                context_dict["offer_history"] = history_list
-            
-            neg_context.context_json = context_dict
-            
-            # Also populate it on winner object so it gets serialized in ChatResponse
-            winner.current_discount_percent = float(current_discount)
-            winner.current_offer_price = float(current_offer_price)
 
         # Extract top 2 runner-ups
         runner_ups = []
@@ -1480,11 +1571,21 @@ async def chat(
         # -- 12. Update NegotiationContext ------------------------------------
         if neg_context:
             neg_context.current_offer = deal_value * (1.0 - winning_sim.discount_percent / 100.0)
+            if deal_value > 0.0:
+                if winning_sim.discount_percent == 0.0:
+                    neg_context.current_offer = deal_value
+                if neg_context.current_offer <= 0.0:
+                    neg_context.current_offer = deal_value
+
             neg_context.current_strategy = winner.winning_strategy
             neg_context.negotiation_stage = analysis.stage
             
             # Save the chosen strategy to previous_strategies history list and update counters
             context_dict = dict(neg_context.context_json) if neg_context.context_json else {}
+            
+            # Save final negotiation pricing parameters to context_json for catalog synchronization
+            context_dict["current_discount_percent"] = winning_sim.discount_percent
+            context_dict["current_offer_price"] = neg_context.current_offer
             
             if winner.winning_strategy == "bundle":
                 offered_concessions = context_dict.get("offered_concessions", [])
@@ -1495,13 +1596,11 @@ async def chat(
                 
                 bundle_offer_count = context_dict.get("bundle_offer_count", 0)
                 context_dict["bundle_offer_count"] = bundle_offer_count + 1
+                
             elif winner.winning_strategy == "discount":
                 discount_offer_count = context_dict.get("discount_offer_count", 0)
                 context_dict["discount_offer_count"] = discount_offer_count + 1
                 context_dict["last_discount_offered"] = winning_sim.discount_percent
-            elif winner.winning_strategy == "personalized":
-                personalized_offer_count = context_dict.get("personalized_offer_count", 0)
-                context_dict["personalized_offer_count"] = personalized_offer_count + 1
                 
             prev_strategies = context_dict.get("previous_strategies", [])
             if winner.winning_strategy != "none":
@@ -1509,6 +1608,14 @@ async def chat(
                 context_dict["previous_strategies"] = prev_strategies[-10:]
                 
             neg_context.context_json = context_dict
+
+        # Structured Diagnostics Logs for Offer Generation
+        logger.info(
+            "[DIAGNOSTICS - OFFER GENERATION] Strategy: %s, Current Offer Price: %.2f, Discount: %.2f%%",
+            winner.winning_strategy,
+            neg_context.current_offer if neg_context else (deal_value * (1.0 - winning_sim.discount_percent / 100.0) if winning_sim else 0.0),
+            winning_sim.discount_percent if winning_sim else 0.0
+        )
         
         # -- 13. Save assistant reply -----------------------------------------
         assistant_turn = Conversation(
@@ -1610,14 +1717,6 @@ async def select_product_endpoint(
         res = await db.execute(stmt)
         neg_context = res.scalars().first()
 
-        initial_context_json = {
-            "current_offer_price": float(product.selling_price),
-            "current_discount_percent": 0.0,
-            "current_strategy": "initial",
-            "current_customer_requested_discount": 0.0,
-            "offer_history": []
-        }
-
         if neg_context:
             neg_context.product_id = product.id
             neg_context.quantity = request.quantity
@@ -1625,7 +1724,7 @@ async def select_product_endpoint(
             neg_context.requested_discount = 0.0
             neg_context.current_strategy = "hardline"
             neg_context.negotiation_stage = "initiated"
-            neg_context.context_json = initial_context_json
+            neg_context.context_json = {}
         else:
             neg_context = NegotiationContext(
                 id=uuid.uuid4(),
@@ -1636,7 +1735,7 @@ async def select_product_endpoint(
                 requested_discount=0.0,
                 current_strategy="hardline",
                 negotiation_stage="initiated",
-                context_json=initial_context_json,
+                context_json={},
             )
             db.add(neg_context)
 

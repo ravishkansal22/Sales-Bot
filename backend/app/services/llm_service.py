@@ -226,6 +226,13 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = ""
     RETRIEVAL_PROVIDER: str = "tavily"
 
+    # Business rule configurations
+    ALLOW_BELOW_COST: bool = False
+    ALLOW_BELOW_MINIMUM: bool = False
+    STRICT_NEGOTIATION_VALIDATION: bool = True
+    ENABLE_SPEC_ESTIMATION: bool = False
+    SPEC_ESTIMATION_CONFIDENCE_THRESHOLD: float = 0.85
+
     # 1. Base progressive stage discount ceilings
     STAGE_CEILINGS: dict[str, float] = {
         "0": 5.0,
@@ -612,6 +619,12 @@ class GroqProvider(LLMProvider):
         # Parse JSON payload
         try:
             parsed = json.loads(cleaned_content)
+            if (
+                isinstance(parsed, dict)
+                and "description" in parsed
+                and isinstance(parsed["description"], dict)
+            ):
+                 parsed = parsed["description"]
         except json.JSONDecodeError as je:
             logger.error("Groq JSON parsing failed. Content was: %r. Error: %s", content, je)
             raise ValueError(f"Invalid JSON from Groq: {je}") from je
@@ -1247,7 +1260,9 @@ class OllamaProvider(LLMProvider):
                     ],
                     "stream": False,
                     "options": {
-                        "temperature": 0.7
+                        "temperature": 0.7,
+                        "num_ctx": 2048,
+                        "num_predict": 256
                     }
                 }
                 res = await client.post(f"{self.base_url}/api/chat", json=req_data)
@@ -1563,6 +1578,12 @@ def get_llm_provider(provider_override: str | None = None) -> LLMProvider:
             )
         else:
             logger.warning("GEMINI_API_KEY not set. Utilizing Graceful Fallback.")
+    
+    elif provider_name == "ollama":
+        primary_provider = OllamaProvider(
+            base_url=settings.OLLAMA_BASE_URL,
+            model=settings.OLLAMA_MODEL
+        )
 
     elif provider_name == "openai":
         if settings.OPENAI_API_KEY:

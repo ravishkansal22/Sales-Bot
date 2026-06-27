@@ -17,8 +17,53 @@ from app.models.product import Product
 from app.models.order import Order
 from app.models.negotiation_context import NegotiationContext
 from app.models.locked_deal import LockedDeal
+from app.core.config_layer import NegotiationConfig
 
 logger = logging.getLogger(__name__)
+
+def validate_negotiated_price(negotiated_price: float, product: Product) -> None:
+    """Validate that the negotiated price meets all business and margin protections."""
+    # Reject <= 0
+    if negotiated_price <= 0:
+        logger.warning(
+            "[DIAGNOSTICS - PROCUREMENT VALIDATION] Rejected negotiated price <= 0: %.2f for product %s",
+            negotiated_price, product.name
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid negotiated price: {negotiated_price}. Price must be greater than zero.",
+        )
+
+    # Reject < minimum_price unless explicitly allowed
+    allow_below_min = NegotiationConfig.ALLOW_BELOW_MINIMUM
+    if product.minimum_price is not None and negotiated_price < product.minimum_price:
+        if not allow_below_min:
+            logger.warning(
+                "[DIAGNOSTICS - PROCUREMENT VALIDATION] Rejected price %.2f below minimum floor %.2f for product %s",
+                negotiated_price, product.minimum_price, product.name
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Negotiated price {negotiated_price} is below the minimum allowed floor price {product.minimum_price}.",
+            )
+
+    # Reject < cost_price unless explicitly allowed
+    allow_below_cost = NegotiationConfig.ALLOW_BELOW_COST
+    if product.cost_price is not None and negotiated_price < product.cost_price:
+        if not allow_below_cost:
+            logger.warning(
+                "[DIAGNOSTICS - PROCUREMENT VALIDATION] Rejected price %.2f below cost %.2f for product %s",
+                negotiated_price, product.cost_price, product.name
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Negotiated price {negotiated_price} is below the product cost price {product.cost_price}.",
+            )
+
+    logger.info(
+        "[DIAGNOSTICS - PROCUREMENT VALIDATION] Passed price validation. Negotiated price: %.2f (Cost: %s, Min: %s)",
+        negotiated_price, product.cost_price, product.minimum_price
+    )
 
 router = APIRouter(prefix="/api/v1/procurement", tags=["procurement"])
 
@@ -214,6 +259,8 @@ async def lock_deal(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Product '{req.product_id}' not found.",
         )
+
+    validate_negotiated_price(req.negotiated_price, product)
 
     # Upsert LockedDeal
     stmt = select(LockedDeal).where(
@@ -429,6 +476,7 @@ async def finalize_purchase(
     # Create order records for database
     for d in deals:
         prod = d.product
+        validate_negotiated_price(d.negotiated_price, prod)
         items_data.append({
             "product_name": prod.name,
             "catalog_price": prod.selling_price,

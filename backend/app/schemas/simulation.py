@@ -223,6 +223,14 @@ class SimulationOutput(BaseModel):
         default_factory=list,
         description="Value-add concessions bundled with this strategy"
     )
+    raw_discount_percent: float | None = Field(
+        default=None,
+        description="Raw simulated discount percent before ceilings"
+    )
+    actual_discount_percent: float | None = Field(
+        default=None,
+        description="Actual customer-facing discount percent after ceilings"
+    )
 
 
 class FinancialMetrics(BaseModel):
@@ -254,6 +262,7 @@ class OptimizationMode(str, Enum):
     MAX_PROFIT = "max_profit"
     MAX_MARGIN = "max_margin"
     MAX_CLOSE_RATE = "max_close_rate"
+    MINIMIZE_DISCOUNT_GAP = "minimize_discount_gap"
 
 class OptimizerResult(BaseModel):
     """The optimizer's final strategy selection.
