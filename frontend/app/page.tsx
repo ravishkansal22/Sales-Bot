@@ -290,6 +290,9 @@ export default function LandingPage() {
       <footer className="w-full border-t border-white/10 bg-black/60 backdrop-blur-md px-6 py-10 mt-auto text-center font-mono text-[9px] text-white/30">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <span>© 2026 GHOST NEGOTIATOR INC. ALL RIGHTS RESERVED.</span>
+          <span className="text-cyan-glow/60 font-semibold tracking-wider uppercase drop-shadow-[0_0_8px_rgba(0,242,254,0.15)]">
+            FlowZint AI Hackathon | Team Duet Coders
+          </span>
           <div className="flex space-x-4">
             <span className="hover:text-white transition-colors cursor-pointer">TERMS OF SERVICE</span>
             <span className="hover:text-white transition-colors cursor-pointer">PRIVACY POLICY</span>

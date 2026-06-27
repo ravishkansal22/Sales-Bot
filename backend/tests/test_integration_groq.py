@@ -149,36 +149,39 @@ async def test_missing_specifications_handling() -> None:
         return_rate=2.5,
     )
     
-    mock_db = AsyncMock()
+    mock_db = MagicMock()
+    mock_db.execute = AsyncMock()
     # Mocking executing select returns empty list of specs
     mock_result = MagicMock()
     mock_result.scalars.return_value.all.return_value = []
     mock_db.execute.return_value = mock_result
     
-    # 1. Low confidence case
-    response = await service.answer_product_question(product, "What is the color of this vacuum cleaner?", mock_db)
-    
-    assert "unavailable" in response.customer_response.lower()
-    assert "LG Vacuum Pro" in response.customer_response
-    assert response.source == "none"
-    mock_llm.generate.assert_called_once()
-    
-    # 2. High confidence case
-    mock_llm.generate.reset_mock()
-    mock_llm.generate.return_value = GeneralKnowledgeEstimate(
-        answer="White and Chrome",
-        confidence=0.75,
-        reasoning="Standard appliance color schemes"
-    )
-    # Clear cache to allow a new execution
-    if hasattr(ProductKnowledgeService, "_in_memory_cache"):
-        ProductKnowledgeService._in_memory_cache.clear()
+    with patch("app.core.config_layer.settings.ENABLE_SPEC_ESTIMATION", True), \
+         patch("app.core.config_layer.settings.SPEC_ESTIMATION_CONFIDENCE_THRESHOLD", 0.50):
+        # 1. Low confidence case
+        response = await service.answer_product_question(product, "What is the color of this vacuum cleaner?", mock_db)
         
-    response2 = await service.answer_product_question(product, "What is the color of this vacuum cleaner?", mock_db)
-    assert response2.source == "general_knowledge"
-    assert "White and Chrome" in response2.customer_response
-    assert "Disclaimer: This is an estimate" in response2.internal_notes
-    mock_llm.generate.assert_called_once()
+        assert "unavailable" in response.customer_response.lower()
+        assert "LG Vacuum Pro" in response.customer_response
+        assert response.source == "none"
+        mock_llm.generate.assert_called_once()
+        
+        # 2. High confidence case
+        mock_llm.generate.reset_mock()
+        mock_llm.generate.return_value = GeneralKnowledgeEstimate(
+            answer="White and Chrome",
+            confidence=0.75,
+            reasoning="Standard appliance color schemes"
+        )
+        # Clear cache to allow a new execution
+        if hasattr(ProductKnowledgeService, "_in_memory_cache"):
+            ProductKnowledgeService._in_memory_cache.clear()
+            
+        response2 = await service.answer_product_question(product, "What is the color of this vacuum cleaner?", mock_db)
+        assert response2.source == "general_knowledge"
+        assert "White and Chrome" in response2.customer_response
+        assert "Disclaimer: This is an estimate" in response2.internal_notes
+        mock_llm.generate.assert_called_once()
 
 
 def test_safety_bounds_clamping_simulation_engine() -> None:

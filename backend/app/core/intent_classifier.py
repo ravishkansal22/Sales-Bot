@@ -27,10 +27,68 @@ async def classify_intent(
     message: str,
     history: list[dict[str, Any]] | None = None,
 ) -> IntentClassification:
-    """Route user query to appropriate pipeline intent."""
-    msg_lower = message.lower()
-    
-    # 0. Product explanation check
+
+    msg_lower = message.lower().strip()
+
+    # ==========================================================
+    # Acceptance Intent
+    # ==========================================================
+
+    acceptance_keywords = [
+        "accepted",
+        "accept",
+        "okay done",
+        "done",
+        "works for me",
+        "sounds good",
+        "looks good",
+        "go ahead",
+        "proceed",
+        "proceed with this",
+        "confirm",
+        "confirmed",
+        "finalize it",
+        "close the deal",
+        "move forward",
+        "lock it",
+        "book it",
+        "i agree",
+        "agreed"
+    ]
+
+    if any(keyword in msg_lower for keyword in acceptance_keywords):
+        return IntentClassification(
+            intent="acceptance",
+            confidence=0.98,
+            reasoning="Customer acceptance signal detected.",
+            target_product_ids=[]
+        )
+
+    # ==========================================================
+    # Greetings
+    # ==========================================================
+
+    general_patterns = [
+        r"\bhello\b",
+        r"\bhi\b",
+        r"\bhey\b",
+        r"\bthanks\b",
+        r"\bthank\s+you\b",
+        r"\bbye\b"
+    ]
+
+    if any(re.search(pattern, msg_lower) for pattern in general_patterns):
+        return IntentClassification(
+            intent="general",
+            confidence=0.95,
+            reasoning="Greeting or courtesy expression detected.",
+            target_product_ids=[]
+        )
+
+    # ==========================================================
+    # Product Explanation
+    # ==========================================================
+
     explanation_keywords = [
         "how does it work",
         "explain",
@@ -40,19 +98,107 @@ async def classify_intent(
         "usage",
         "how does this product function"
     ]
-    if any(kw in msg_lower for kw in explanation_keywords):
+
+    if any(keyword in msg_lower for keyword in explanation_keywords):
         return IntentClassification(
             intent="product_explanation",
-            confidence=1.0,
-            reasoning="Product explanation keyword detected.",
-            target_product_ids=[],
-            sub_intent=None
+            confidence=0.95,
+            reasoning="Product explanation request detected.",
+            target_product_ids=[]
         )
 
-    # 1. Competitor leverage check
+    # ==========================================================
+    # Product Questions
+    # ==========================================================
+
+    product_question_keywords = [
+        "specification",
+        "specifications",
+        "spec",
+        "specs",
+        "feature",
+        "features",
+        "details",
+        "information",
+        "info",
+        "tell me about",
+        "what does it have",
+        "what info",
+        "what information",
+        "what is included",
+        "color",
+        "colour",
+        "processor",
+        "cpu",
+        "chip",
+        "chipset",
+        "ram",
+        "memory",
+        "storage",
+        "battery",
+        "battery life",
+        "display",
+        "screen",
+        "camera",
+        "weight",
+        "dimensions",
+        "size",
+        "material",
+        "compatibility",
+        "connectivity",
+        "warranty"
+    ]
+
+    question_starters = [
+        "what",
+        "which",
+        "does",
+        "is",
+        "can",
+        "how many"
+    ]
+
+    if (
+        any(keyword in msg_lower for keyword in product_question_keywords)
+        or (
+            any(msg_lower.startswith(starter) for starter in question_starters)
+            and "discount" not in msg_lower
+            and "%" not in msg_lower
+        )
+    ):
+        return IntentClassification(
+            intent="product_question",
+            confidence=0.95,
+            reasoning="Product information request detected.",
+            target_product_ids=[]
+        )
+
+    # ==========================================================
+    # Product Comparison
+    # ==========================================================
+
+    comparison_keywords = [
+        "compare",
+        "vs",
+        "versus",
+        "difference",
+        "better than"
+    ]
+
+    if any(keyword in msg_lower for keyword in comparison_keywords):
+        return IntentClassification(
+            intent="product_comparison",
+            confidence=0.95,
+            reasoning="Comparison request detected.",
+            target_product_ids=[]
+        )
+
+    # ==========================================================
+    # Competitor Leverage
+    # ==========================================================
+
     competitor_keywords = [
         "competitor",
-        "cheaper",
         "other vendor",
         "market price",
         "alternative quote",
@@ -61,125 +207,117 @@ async def classify_intent(
         "matching price",
         "competitor offer"
     ]
-    if any(kw in msg_lower for kw in competitor_keywords):
+
+    if any(keyword in msg_lower for keyword in competitor_keywords):
         return IntentClassification(
             intent="negotiation",
-            confidence=1.0,
-            reasoning="Competitor-related keyword detected.",
+            confidence=0.98,
+            reasoning="Competitor leverage detected.",
             target_product_ids=[],
             sub_intent="competitor_leverage"
         )
-        
-    # 1b. Negotiation check
+
+    # ==========================================================
+    # Negotiation
+    # ==========================================================
+
     negotiation_keywords = [
-        "discount", "offer", "cheaper", "price", "cost", "quantity", "bulk", "units", "buy", "deal",
-        "pricing", "expensive", "cheap", "negotiate", "rate", "off"
+        "discount",
+        "offer",
+        "cheaper",
+        "price",
+        "cost",
+        "pricing",
+        "expensive",
+        "cheap",
+        "negotiate",
+        "rate",
+        "bulk",
+        "quantity",
+        "units"
     ]
-    has_percent = "%" in msg_lower or any(re.search(rf"\b{re.escape(kw)}\b", msg_lower) for kw in negotiation_keywords)
-    if has_percent:
+
+    has_percentage = bool(re.search(r"\d+\s*%", msg_lower))
+
+    if (
+        has_percentage
+        or any(keyword in msg_lower for keyword in negotiation_keywords)
+    ):
         return IntentClassification(
             intent="negotiation",
             confidence=0.95,
-            reasoning="Negotiation/commercial keyword or percentage detected.",
-            target_product_ids=[],
-            sub_intent=None
-        )
-
-    # 2. Commercial terms / warranty check
-    commercial_keywords = [
-        "warranty",
-        "guarantee",
-        "support",
-        "service",
-        "replacement",
-        "coverage"
-    ]
-    if any(kw in msg_lower for kw in commercial_keywords):
-        return IntentClassification(
-            intent="commercial_terms",
-            confidence=1.0,
-            reasoning="Commercial-related keyword (warranty/guarantee/support/service/replacement/coverage) detected.",
-            target_product_ids=[],
-            sub_intent=None
-        )
-
-    # 3. Product comparison check
-    if any(kw in msg_lower for kw in ["compare", "vs", "versus", "difference between", "better than"]):
-        return IntentClassification(
-            intent="product_comparison",
-            confidence=0.95,
-            reasoning="Product comparison keyword detected.",
+            reasoning="Negotiation request detected.",
             target_product_ids=[]
         )
 
-    # 4. Product question check
-    general_spec_keywords = [
-        "what specifications", "general specifications", "what specs", "list specifications", "list specs",
-        "available specifications", "available specs", "share specifications", "share specs", "show specifications",
-        "show specs", "tell me about the specifications", "details on specifications", "details on specs"
-    ]
-    is_general_specs = any(phrase in msg_lower for phrase in general_spec_keywords) or (
-        ("specification" in msg_lower or "specs" in msg_lower or "features" in msg_lower or "details" in msg_lower)
-    )
-    
-    qa_keywords = [
-        "dimension", "dimensions", "size", "height", "width", "depth", "length", 
-        "specifications", "spec", "specs", "material", "made of", "weight", "features", "details", "compatible", 
-        "color", "colour", "shade", "hue", "cpu", "chip", "chipset", "processor", "ram", "storage", "capacity", 
-        "memory", "mah", "battery capacity", "battery life", "battery", "megapixels", "mp", "resolution", "lens", "camera",
-        "page", "pages", "page count", "isbn", "serial", "model"
-    ]
-    
-    if is_general_specs or any(kw in msg_lower for kw in qa_keywords):
-        return IntentClassification(
-            intent="product_question",
-            confidence=0.95,
-            reasoning="Product question/specification keyword detected.",
-            target_product_ids=[]
-        )
+    # ==========================================================
+    # Cart Management
+    # ==========================================================
 
-    # 5. Product discovery check
-    if any(kw in msg_lower for kw in ["find", "search", "show me", "catalog", "what products", "looking for", "recommend"]):
-        return IntentClassification(
-            intent="product_discovery",
-            confidence=0.95,
-            reasoning="Product discovery keyword detected.",
-            target_product_ids=[]
-        )
+    cart_keywords = [
+        "add to cart",
+        "show cart",
+        "view cart",
+        "remove from cart",
+        "lock deal",
+        "reopen negotiation"
+    ]
 
-    # 6. Cart management check
-    if any(kw in msg_lower for kw in ["lock deal", "add to cart", "show cart", "view cart", "procurement cart", "remove", "reopen"]):
+    if any(keyword in msg_lower for keyword in cart_keywords):
         return IntentClassification(
             intent="cart_management",
             confidence=0.95,
-            reasoning="Cart management keyword detected.",
+            reasoning="Cart management action detected.",
             target_product_ids=[]
         )
 
-    # 7. Checkout check
-    if any(kw in msg_lower for kw in ["checkout", "finalize purchase", "buy", "place order"]):
+    # ==========================================================
+    # Checkout
+    # ==========================================================
+
+    checkout_keywords = [
+        "checkout",
+        "place order",
+        "finalize purchase",
+        "complete purchase"
+    ]
+
+    if any(keyword in msg_lower for keyword in checkout_keywords):
         return IntentClassification(
             intent="checkout",
             confidence=0.95,
-            reasoning="Checkout keyword detected.",
+            reasoning="Checkout intent detected.",
             target_product_ids=[]
         )
 
-    # 8. General check
-    general_patterns = [r"\bhello\b", r"\bhi\b", r"\bthanks\b", r"\bthank\s+you\b", r"\bbye\b"]
-    negotiation_keywords = ["discount", "price", "expensive", "cost", "offer", "cheap", "rate", "off", "value", "negotiate", "pricing"]
-    if any(re.search(pat, msg_lower) for pat in general_patterns) and not any(kw in msg_lower for kw in negotiation_keywords):
+    # ==========================================================
+    # Discovery
+    # ==========================================================
+
+    discovery_keywords = [
+        "find",
+        "search",
+        "show me",
+        "catalog",
+        "recommend",
+        "available products"
+    ]
+
+    if any(keyword in msg_lower for keyword in discovery_keywords):
         return IntentClassification(
-            intent="general",
+            intent="product_discovery",
             confidence=0.95,
-            reasoning="General greeting/thanks keyword detected.",
+            reasoning="Product discovery request detected.",
             target_product_ids=[]
         )
 
-    # Default to negotiation
+    # ==========================================================
+    # Default
+    # ==========================================================
+
     return IntentClassification(
-        intent="negotiation",
-        confidence=0.95,
-        reasoning="Default classification rule mapping to negotiation.",
+        intent="general",
+        confidence=0.60,
+        reasoning="No strong intent signal detected.",
         target_product_ids=[]
     )

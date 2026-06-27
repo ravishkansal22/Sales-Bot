@@ -226,6 +226,7 @@ async def test_discount_explanation_bypasses_simulations(
         mock_customer,
         mock_context,
         mock_product,
+        None,
         None
     ]
     mock_res.scalars.return_value.all.return_value = [] # Empty message history

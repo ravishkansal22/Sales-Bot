@@ -15,6 +15,7 @@ from app.models.product_specification import ProductSpecification
 from app.services.llm.base import LLMProvider
 from app.services.product_resolver import ProductResolver
 from app.services.product_service import ProductService
+from app.core.config_layer import NegotiationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -166,11 +167,12 @@ def extract_attribute_by_regex(question: str, documents: list[str], threshold: f
 CANONICAL_SYNONYMS = {
     "color": ["color", "colour", "shade", "hue"],
     "warranty": ["warranty", "guarantee", "warranty period"],
-    "processor": ["processor", "cpu", "chip", "chipset"],
+    "processor": ["processor", "cpu", "chip", "chipset", "soc"],
     "memory": ["memory", "ram", "storage", "capacity"],
     "battery": ["battery", "mah", "battery capacity", "battery life"],
     "camera": ["camera", "megapixels", "mp", "resolution", "lens"],
     "dimensions": ["dimensions", "size", "height", "width", "depth", "length", "dimension"],
+    "display": ["display", "screen", "panel"],
 }
 
 GENERIC_CATEGORY_STANDARDS = {
@@ -250,7 +252,7 @@ def normalize_attribute(q_lower: str) -> str | None:
     mappings = {
         "color": ["colour", "shade", "hue", "color"],
         "warranty": ["guarantee", "warranty"],
-        "processor": ["cpu", "chip", "chipset", "processor"],
+        "processor": ["cpu", "chip", "chipset", "processor", "soc"],
         "memory": ["ram", "storage", "capacity", "memory"],
         "battery": ["mah", "battery"],
         "camera": ["megapixels", "mp", "resolution", "lens", "camera"],
@@ -307,9 +309,13 @@ class ProductKnowledgeService:
 
         Ensures separation of Catalog-Backed Facts and General Knowledge estimates.
         """
-        # 1. Attribute Normalization
+        # Structured Diagnostics for specification retrieval
         q_lower = question.lower()
         canonical_attr = normalize_attribute(q_lower)
+        logger.info(
+            "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Query: '%s', Resolved Attribute: '%s', Product ID: %s",
+            question, canonical_attr, product.id
+        )
 
         # 2. Catalog Lookup (Database)
         stmt = select(ProductSpecification).where(ProductSpecification.product_id == product.id)
@@ -331,10 +337,19 @@ class ProductKnowledgeService:
         if canonical_attr:
             # Check canonical attribute and its synonyms in spec_dict
             syns = CANONICAL_SYNONYMS.get(canonical_attr, [canonical_attr])
-            for syn in syns:
-                if syn in spec_dict:
-                    matched_spec_name = syn
-                    matched_spec_val = spec_dict[syn]
+            for spec_name, spec_val in spec_dict.items():
+                spec_norm = normalize_attribute(spec_name)
+                if spec_norm == canonical_attr:
+                    matched_spec_name = spec_name
+                    matched_spec_val = spec_val
+                    break
+                if any(
+                    syn in spec_name
+                    or spec_name in syn
+                    for syn in syns
+                ):
+                    matched_spec_name = spec_name
+                    matched_spec_val = spec_val
                     break
 
         # Fallback to simple substring match if not found via canonical attributes
@@ -346,6 +361,10 @@ class ProductKnowledgeService:
                     break
 
         if matched_spec_name and matched_spec_val:
+            logger.info(
+                "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Catalog Match Found. Spec Name: '%s', Value: '%s'",
+                matched_spec_name, matched_spec_val
+            )
             return ProductAnswer(
                 customer_response=(
                     f"Regarding the {product.name}, the official database record indicates:\n"
@@ -556,6 +575,15 @@ class ProductKnowledgeService:
             try:
                 tasks = [provider.retrieve(q) for q in queries]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
+                logger.info(
+                    "Retrieval queries: %s",
+                    queries
+                )
+
+                logger.info(
+                    "Retrieved docs count: %d",
+                    len(retrieved_docs)
+                )
                 seen = set()
                 for res in results:
                     if isinstance(res, list):
@@ -568,6 +596,16 @@ class ProductKnowledgeService:
             except Exception as e:
                 logger.error("Parallel web retrieval failed: %s", e)
                 retrieved_docs = []
+
+                logger.info(
+                    "Retrieved docs count: %d",
+                    len(retrieved_docs)
+                )
+
+                logger.info(
+                    "Retrieved queries: %s",
+                    queries
+                )
             
             if retrieved_docs:
                 if _redis_service is not None:
@@ -708,7 +746,11 @@ class ProductKnowledgeService:
                 logger.error("LLM web extraction failed: %s", e)
 
         # 7. General Knowledge Estimate
-        if is_soft:
+        logger.info(
+            "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Inconclusive database/web search. ENABLE_SPEC_ESTIMATION: %s",
+            NegotiationConfig.ENABLE_SPEC_ESTIMATION
+        )
+        if is_soft and NegotiationConfig.ENABLE_SPEC_ESTIMATION:
             category_hint = ""
             if canonical_attr:
                 category_hint = get_category_standard(product.category, canonical_attr)
@@ -741,10 +783,15 @@ class ProductKnowledgeService:
                     response_model=GeneralKnowledgeEstimate
                 )
                 
-                if estimate_obj.confidence >= 0.50 and "[Specification Unavailable]" not in estimate_obj.answer:
+                logger.info(
+                    "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] LLM Estimate generated. Value: %s, Confidence: %.2f (Threshold: %.2f)",
+                    estimate_obj.answer, estimate_obj.confidence, NegotiationConfig.SPEC_ESTIMATION_CONFIDENCE_THRESHOLD
+                )
+                
+                if estimate_obj.confidence >= NegotiationConfig.SPEC_ESTIMATION_CONFIDENCE_THRESHOLD and "[Specification Unavailable]" not in estimate_obj.answer:
                     ans = ProductAnswer(
                         customer_response=(
-                            f"Regarding the {product.name}, the {canonical_attr or 'requested specification'} is {estimate_obj.answer}."
+                            f"Regarding the {product.name}, the {canonical_attr or 'requested specification'} is estimated to be {estimate_obj.answer} [Estimated Information]."
                         ),
                         source="general_knowledge",
                         confidence=estimate_obj.confidence,

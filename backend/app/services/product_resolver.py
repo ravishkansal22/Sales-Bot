@@ -45,6 +45,7 @@ class ProductResolver:
         message: str,
         db: AsyncSession,
     ) -> list[Product]:
+        logger.info("[DIAGNOSTICS - PRODUCT RESOLUTION] Resolving query: '%s'", message)
         """Resolve a natural language query to matching catalog products.
 
         Flow:
@@ -115,7 +116,12 @@ class ProductResolver:
                 if valid_results:
                     # Sort by the score_match return value
                     valid_results.sort(key=score_match, reverse=True)
-                    return valid_results[:10]
+                    resolved = valid_results[:10]
+                    logger.info(
+                        "[DIAGNOSTICS - PRODUCT RESOLUTION] Primary search resolved: %s",
+                        [p.name for p in resolved]
+                    )
+                    return resolved
 
         # 4. Fallback to deterministic token-by-token search if the combined search yields nothing.
         # This is a highly robust deterministic alternative that makes 0 LLM calls.
@@ -139,6 +145,12 @@ class ProductResolver:
             valid_results = [p for p, score in scored_results if score > 0.05]
             if valid_results:
                 valid_results.sort(key=score_match, reverse=True)
-                return valid_results[:10]
+                resolved = valid_results[:10]
+                logger.info(
+                    "[DIAGNOSTICS - PRODUCT RESOLUTION] Fallback token search resolved: %s",
+                    [p.name for p in resolved]
+                )
+                return resolved
 
+        logger.info("[DIAGNOSTICS - PRODUCT RESOLUTION] Failed to resolve any products.")
         return []

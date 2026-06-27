@@ -289,6 +289,44 @@ class NegotiationConfigMeta(type):
     def PERSONALIZED_REPETITION_FACTOR(cls) -> float:
         return getattr(settings, "PERSONALIZED_REPETITION_FACTOR", 0.15)
 
+    @property
+    def ALLOW_BELOW_COST(cls) -> bool:
+        return getattr(settings, "ALLOW_BELOW_COST", False)
+
+    @property
+    def ALLOW_BELOW_MINIMUM(cls) -> bool:
+        return getattr(settings, "ALLOW_BELOW_MINIMUM", False)
+
+    @property
+    def STRICT_NEGOTIATION_VALIDATION(cls) -> bool:
+        return getattr(settings, "STRICT_NEGOTIATION_VALIDATION", True)
+
+    @property
+    def ENABLE_SPEC_ESTIMATION(cls) -> bool:
+        return getattr(settings, "ENABLE_SPEC_ESTIMATION", False)
+
+    @property
+    def SPEC_ESTIMATION_CONFIDENCE_THRESHOLD(cls) -> float:
+        return getattr(settings, "SPEC_ESTIMATION_CONFIDENCE_THRESHOLD", 0.85)
+
+    # Negotiation gap penalty — penalises strategies whose offered discount
+    # deviates significantly from the customer's requested discount.
+    @property
+    def DISCOUNT_GAP_PENALTY_WEIGHT(cls) -> float:
+        """Weight applied to the normalised discount gap penalty in scoring."""
+        return getattr(settings, "DISCOUNT_GAP_PENALTY_WEIGHT", 0.15)
+
+    @property
+    def DISCOUNT_GAP_MAX_PENALTY(cls) -> float:
+        """Maximum absolute penalty applied when the gap is at its worst (100pp gap)."""
+        return getattr(settings, "DISCOUNT_GAP_MAX_PENALTY", 0.30)
+
+    @property
+    def DISCOUNT_GAP_PERSISTENCE_ALIGNMENT_BOOST(cls) -> float:
+        """Extra weight added to alignment scoring when customer_persistence >= 2.
+        Rewards strategies that are closer to the customer's requested discount
+        when the customer has made repeated demands."""
+        return getattr(settings, "DISCOUNT_GAP_PERSISTENCE_ALIGNMENT_BOOST", 0.20)
 
 class NegotiationConfig(metaclass=NegotiationConfigMeta):
     """Centralised configuration layer for B2B negotiation logic.

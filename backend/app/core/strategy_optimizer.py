@@ -39,6 +39,7 @@ class StrategyOptimizer:
         dynamic_ceiling: float = 0.0,
         list_price: float = 0.0,
         requested_discount_percent: float = 0.0,
+        last_discount_offered: float = 0.0,
     ) -> OptimizerResult:
         """Rank strategies and return the winner.
 
@@ -69,6 +70,16 @@ class StrategyOptimizer:
 
         if not simulations:
             raise ValueError("Cannot optimise an empty list of simulations.")
+
+        logger.info(
+            "[DIAGNOSTICS - STRATEGY OPTIMIZATION] Starting optimization. Mode: %s, Stock: %d, Has Pricing Request: %s, Dynamic Ceiling: %.2f%%, List Price: %.2f, Requested Discount: %.2f%%",
+            mode.value if hasattr(mode, "value") else str(mode),
+            stock_quantity,
+            has_pricing_request,
+            dynamic_ceiling,
+            list_price,
+            requested_discount_percent
+        )
 
         # Determine repeated discount demands from history or context_json
         discount_demands = 0
@@ -105,6 +116,7 @@ class StrategyOptimizer:
                     confidence,
                     mode,
                     context_json,
+                    requested_discount_percent=requested_discount_percent,
                 )
             )
 
@@ -161,10 +173,20 @@ class StrategyOptimizer:
         else:
             inventory_explanation = "Standard discount flexibility applied under normal stock levels."
 
-        # Extract current customer requested discount
+        # Extract current customer requested discount for offer-price clamping.
+        # The clamping ceiling is the persisted requested discount from context_json
+        # (which may differ from the live requested_discount_percent parameter used for
+        # gap-penalty scoring).  Priority: context_json keys > live parameter.
         current_customer_requested_discount = 0.0
         if context_json:
-            current_customer_requested_discount = context_json.get("current_customer_requested_discount", 0.0) or 0.0
+            current_customer_requested_discount = (
+                context_json.get("current_customer_requested_discount", 0.0)
+                or context_json.get("requested_discount", 0.0)
+                or requested_discount_percent
+            )
+        elif requested_discount_percent > 0.0:
+            current_customer_requested_discount = requested_discount_percent
+
 
         if not has_pricing_request:
             winning_factors = ["Initial State"]
@@ -174,6 +196,24 @@ class StrategyOptimizer:
             actual_offer_discount = 0.0
             actual_offer_price = list_price
 
+            if list_price > 0.0:
+                if actual_offer_discount == 0.0:
+                    actual_offer_price = list_price
+                if actual_offer_price <= 0.0:
+                    logger.critical(
+                        "[CRITICAL] Offer price calculated as <= 0 (actual_offer_price=%.2f) "
+                        "for product with list_price=%.2f. Discount was %.2f%%.",
+                        actual_offer_price, list_price, actual_offer_discount
+                    )
+                    if NegotiationConfig.STRICT_NEGOTIATION_VALIDATION:
+                        raise ValueError(
+                            f"Negotiation validation failed: Calculated price {actual_offer_price} "
+                            f"is less than or equal to zero for list price {list_price}."
+                        )
+                    else:
+                        actual_offer_price = list_price
+                        actual_offer_discount = 0.0
+
             logger.info(
                 f"Requested discount: {requested_discount_percent}%\n"
                 f"Current customer requested discount: {current_customer_requested_discount}%\n\n"
@@ -182,6 +222,11 @@ class StrategyOptimizer:
                 f"Actual customer-facing offer: {actual_offer_discount}%\n"
                 f"Price: ₹{actual_offer_price}\n\n"
                 f"Winner strategy: none"
+            )
+
+            logger.info(
+                "[DIAGNOSTICS - STRATEGY OPTIMIZATION] Optimization complete (No pricing request). Winner: none, Actual Price: %.2f",
+                actual_offer_price
             )
 
             return OptimizerResult(
@@ -250,12 +295,119 @@ class StrategyOptimizer:
         winning_sim = next((s for s in simulations if s.strategy_name == winner_strategy), None)
         raw_optimizer_discount = winning_sim.discount_percent if winning_sim else 0.0
 
-        effective_discount = raw_optimizer_discount
+        # -- Monotonicity enforcement: never retract a previously offered discount --
+        pre_monotonicity_discount = raw_optimizer_discount
+        effective_discount = max(
+            raw_optimizer_discount,
+            last_discount_offered
+        )
+        if effective_discount > raw_optimizer_discount:
+            logger.info(
+                "[DIAGNOSTICS - MONOTONICITY] Monotonicity guard applied: "
+                "raw_optimizer_discount=%.2f%% would retract last_discount_offered=%.2f%%. "
+                "Enforced effective_discount=%.2f%%.",
+                pre_monotonicity_discount,
+                last_discount_offered,
+                effective_discount,
+            )
+        else:
+            logger.info(
+                "[DIAGNOSTICS - MONOTONICITY] No retraction detected: "
+                "raw_optimizer_discount=%.2f%%, last_discount_offered=%.2f%%, effective=%.2f%%.",
+                raw_optimizer_discount,
+                last_discount_offered,
+                effective_discount,
+            )
+
+        # --------------------------------------------
+        # Progressive Discount Unlocking
+        # --------------------------------------------
+        persistence = 0
+        walkaway_risk = False
+        competitor_pressure = False
+        quantity = 1
+
+        max_allowed_discount = dynamic_ceiling
+
+        if context_json:
+            persistence = context_json.get("customer_persistence", 0) or 0
+            walkaway_risk = context_json.get("walkaway_risk", False)
+            competitor_pressure = context_json.get("competitor_pressure", False)
+            quantity = context_json.get("mentioned_quantity", 1) or 1
+
+            # Early stage negotiation
+            if persistence <= 1:
+                max_allowed_discount = min(dynamic_ceiling, 5.0)
+
+            # Mid stage negotiation
+            elif persistence <= 3:
+                max_allowed_discount = min(dynamic_ceiling, 10.0)
+
+            # Serious negotiation
+            elif persistence <= 5:
+                max_allowed_discount = min(dynamic_ceiling, 15.0)
+
+            # High concessions require business justification
+            else:
+                approval_score = 0
+
+                if walkaway_risk:
+                    approval_score += 1
+
+                if competitor_pressure:
+                    approval_score += 1
+        
+                if quantity >= 5:
+                    approval_score += 1
+
+                # Require at least three commercial signals
+                if approval_score >= 3:
+                    max_allowed_discount = min(dynamic_ceiling, 25.0)
+                else:
+                    max_allowed_discount = min(dynamic_ceiling, 15.0)
+
         if current_customer_requested_discount > 0.0:
-            effective_discount = min(effective_discount, current_customer_requested_discount)
-        effective_discount = min(effective_discount, dynamic_ceiling)
+            effective_discount = max(
+                last_discount_offered,
+                min(effective_discount, current_customer_requested_discount)
+            )
+
+        effective_discount = min(
+            effective_discount,
+            max_allowed_discount
+        )
+        effective_discount = max(
+            effective_discount,
+            last_discount_offered
+        )
+        logger.info(
+            "[NEGOTIATION STAGE] persistence=%d, max_allowed_discount=%.2f%%, "
+            "effective_discount_before_cap=%.2f%%, final_discount=%.2f%%",
+            persistence,
+            max_allowed_discount,
+            effective_discount,
+            min(effective_discount, max_allowed_discount)
+        )
         actual_offer_discount = max(0.0, effective_discount)
         actual_offer_price = list_price * (1.0 - actual_offer_discount / 100.0)
+
+        if list_price > 0.0:
+            if actual_offer_discount == 0.0:
+                actual_offer_price = list_price
+            if actual_offer_price <= 0.0:
+                logger.critical(
+                    "[CRITICAL] Offer price calculated as <= 0 (actual_offer_price=%.2f) "
+                    "for product with list_price=%.2f. Discount was %.2f%%.",
+                    actual_offer_price, list_price, actual_offer_discount
+                )
+                if NegotiationConfig.STRICT_NEGOTIATION_VALIDATION:
+                    raise ValueError(
+                        f"Negotiation validation failed: Calculated price {actual_offer_price} "
+                        f"is less than or equal to zero for list price {list_price}."
+                    )
+                else:
+                    actual_offer_price = list_price
+                    actual_offer_discount = 0.0
 
         logger.info(
             f"Requested discount: {requested_discount_percent}%\n"
@@ -265,6 +417,15 @@ class StrategyOptimizer:
             f"Actual customer-facing offer: {actual_offer_discount}%\n"
             f"Price: ₹{actual_offer_price}\n\n"
             f"Winner strategy: {winner_strategy}"
+        )
+
+        logger.info(
+            "[DIAGNOSTICS - STRATEGY OPTIMIZATION] Optimization complete. Winner: %s, Raw Discount: %.2f%%, Dynamic Ceiling: %.2f%%, Actual Discount: %.2f%%, Actual Price: %.2f",
+            winner_strategy,
+            raw_optimizer_discount,
+            dynamic_ceiling,
+            actual_offer_discount,
+            actual_offer_price
         )
 
         return OptimizerResult(
@@ -280,6 +441,7 @@ class StrategyOptimizer:
             actual_offer_discount=actual_offer_discount,
             actual_offer_price=actual_offer_price,
             current_discount_percent=actual_offer_discount,
+            current_offer_price=actual_offer_price,
         )
 
     # ------------------------------------------------------------------
@@ -291,6 +453,7 @@ class StrategyOptimizer:
         confidence: float,
         mode: OptimizationMode,
         context_json: dict[str, Any] | None = None,
+        requested_discount_percent: float = 0.0,
     ) -> float:
 
         if mode == OptimizationMode.MAX_PROFIT:
@@ -299,19 +462,68 @@ class StrategyOptimizer:
             base_score = simulation.average_close_probability
         elif mode == OptimizationMode.MAX_MARGIN:
             base_score = simulation.average_gross_margin_retention
+        elif mode == OptimizationMode.MINIMIZE_DISCOUNT_GAP:
+            # Primary objective: minimise the absolute gap between the customer's
+            # requested discount and this strategy's offered discount.
+            gap = abs(requested_discount_percent - simulation.discount_percent)
+            # Normalise gap to [0, 1] over a 100pp range; invert so smaller gap -> higher score.
+            normalised_gap = min(gap / 100.0, 1.0)
+            base_score = (
+                (1.0 - normalised_gap) * 0.60
+                + simulation.average_close_probability * 0.25
+                + (1.0 - simulation.average_risk_score) * 0.15
+            )
         else:
             w = NegotiationConfig.SCORING_WEIGHTS
             scale = NegotiationConfig.SCORING_SCALE_FACTOR
-            
+
             # Normalize expected value to a [0, 1] scale: close_probability * gross_margin_retention
             normalized_ev = simulation.average_close_probability * simulation.average_gross_margin_retention
-            
+
             base_score = (
                 normalized_ev * scale * w["expected_value"]
                 + simulation.average_close_probability * scale * w["close_probability"]
                 + (1.0 - simulation.average_risk_score) * scale * w["risk_score"]
                 + confidence * scale * w["confidence"]
             )
+
+            # ------------------------------------------------------------------
+            # Negotiation Gap Penalty (BALANCED mode only)
+            # Penalise strategies whose offered discount deviates significantly
+            # from the customer's requested discount.  When the customer has made
+            # repeated demands (persistence >= 2), the alignment weight is
+            # boosted to honour the pressure signal.
+            # ------------------------------------------------------------------
+            if requested_discount_percent > 0.0:
+                persistence = (context_json or {}).get("customer_persistence", 0) or 0
+                gap_pp = abs(requested_discount_percent - simulation.discount_percent)
+                # Normalise over the requested discount itself so the penalty is
+                # proportional to the magnitude of the customer's ask.
+                normalised_gap = min(gap_pp / max(requested_discount_percent, 1.0), 1.0)
+                gap_penalty_weight = NegotiationConfig.DISCOUNT_GAP_PENALTY_WEIGHT
+                max_penalty = NegotiationConfig.DISCOUNT_GAP_MAX_PENALTY
+
+                # Extra alignment boost when customer_persistence >= 2
+                if persistence >= 5:
+                    gap_penalty_weight += NegotiationConfig.DISCOUNT_GAP_PERSISTENCE_ALIGNMENT_BOOST
+
+                gap_penalty = normalised_gap * gap_penalty_weight * max_penalty * scale
+                base_score -= gap_penalty
+
+                logger.debug(
+                    "[DISCOUNT_GAP] strategy=%s, requested=%.2f%%, offered=%.2f%%, "
+                    "gap_pp=%.2f, normalised_gap=%.4f, gap_penalty_weight=%.4f, "
+                    "gap_penalty=%.4f, base_score_after=%.4f, persistence=%d",
+                    simulation.strategy_name,
+                    requested_discount_percent,
+                    simulation.discount_percent,
+                    gap_pp,
+                    normalised_gap,
+                    gap_penalty_weight,
+                    gap_penalty,
+                    base_score,
+                    persistence,
+                )
 
         # Apply progressive negotiation flexibility boost & repeated strategy penalty
         if context_json:
@@ -352,7 +564,7 @@ class StrategyOptimizer:
                     qty_penalty += base_score * volume_factor * NegotiationConfig.VOLUME_BOOST_HARDLINE_SCALE
 
             # Persistence boost
-            if persistence >= 2:
+            if persistence >= 4:
                 # Strong pressure signals favor discount/personalized over bundle/hardline
                 if simulation.strategy_name == "discount":
                     persist_boost += base_score * NegotiationConfig.PERSISTENCE_PRESSURE_DISCOUNT_BOOST
