@@ -5,8 +5,11 @@ Exposes endpoints for listing, searching, recommending products, and retrieving 
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -444,9 +447,20 @@ async def get_customer_optimizer_result(
 
     current_discount_percent = 0.0
     current_offer_price = 0.0
+    negotiated_quantity = 1
     if neg_context and neg_context.context_json:
         current_discount_percent = neg_context.context_json.get("current_discount_percent", 0.0)
         current_offer_price = neg_context.context_json.get("current_offer_price", 0.0)
+        # negotiated_quantity is also mirrored into context_json as the authoritative source
+        negotiated_quantity = int(neg_context.context_json.get("negotiated_quantity", neg_context.quantity or 1))
+    elif neg_context:
+        negotiated_quantity = neg_context.quantity or 1
+
+    logger.info(
+        "[DIAG][4/6] QUANTITY RETURNED TO FRONTEND via /optimizer-result: "
+        "negotiated_quantity=%d, current_offer_price=%.2f, current_discount_percent=%.2f%%, customer_id=%s",
+        negotiated_quantity, current_offer_price, current_discount_percent, str(customer.id)
+    )
 
     stmt_winner = (
         select(SimulationResult)
@@ -469,5 +483,6 @@ async def get_customer_optimizer_result(
         "confidence_score": winner.confidence_score,
         "current_discount_percent": current_discount_percent,
         "current_offer_price": current_offer_price,
+        "negotiated_quantity": negotiated_quantity,
     }
 

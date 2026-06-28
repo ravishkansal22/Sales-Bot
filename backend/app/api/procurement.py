@@ -262,6 +262,18 @@ async def lock_deal(
 
     validate_negotiated_price(req.negotiated_price, product)
 
+    logger.info(
+        "[DIAG][6/6] PROCUREMENT API RECEIVED LOCK REQUEST: "
+        "product=%s, negotiated_unit_price=%.2f, quantity=%d, "
+        "total_line_value=%.2f, strategy=%s, customer_id=%s",
+        product.name,
+        req.negotiated_price,
+        req.quantity,
+        req.negotiated_price * req.quantity,
+        req.strategy,
+        str(customer.id)
+    )
+
     # Upsert LockedDeal
     stmt = select(LockedDeal).where(
         LockedDeal.customer_id == customer.id,
@@ -290,6 +302,12 @@ async def lock_deal(
         db.add(deal)
 
     await db.commit()
+    logger.info(
+        "[DIAG][6/6] LOCKED DEAL PERSISTED TO DB: deal_id=%s, quantity=%d, "
+        "negotiated_unit_price=%.2f, total_line_value=%.2f",
+        str(deal.id), deal.quantity, deal.negotiated_price,
+        deal.negotiated_price * deal.quantity
+    )
     return {"status": "success", "message": "Deal locked in cart successfully.", "deal_id": str(deal.id)}
 
 
