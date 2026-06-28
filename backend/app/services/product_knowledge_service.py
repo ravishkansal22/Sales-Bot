@@ -323,16 +323,41 @@ class ProductKnowledgeService:
         result = await db.execute(stmt)
         specs = result.scalars().all()
 
-        # Lazy Self-Healing Generation: if no specifications exist for this product,
-        # generate them dynamically on-the-fly and persist them permanently.
-        # This keeps database load fast and backfills existing records seamlessly.
+        # Lazy Self-Healing Generation:
+        # (a) If no specifications exist for this product, generate them dynamically.
+        # (b) If electronics metadata is stale (missing 'subcategory' key, i.e. generated
+        #     before subcategory-aware logic existed), delete and regenerate to fix language.
+        from app.services.product_intelligence_generator import generate_specs_for_product
+
+        needs_regeneration = False
         if not specs:
+            needs_regeneration = True
             logger.info(
-                "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Self-healing initiated: "
-                "generating specifications for Product %s (%s)",
-                product.name, str(product.id)
+                "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Self-healing initiated (no specs): "
+                "Product %s (%s)", product.name, str(product.id)
             )
-            from app.services.product_intelligence_generator import generate_specs_for_product
+        elif product.category and "electronics" in product.category.lower():
+            # Check for stale metadata lacking subcategory field
+            for s in specs:
+                if s.specification_name.lower().strip() == "_sales_metadata_":
+                    try:
+                        existing_meta = json.loads(s.specification_value)
+                        if "subcategory" not in existing_meta:
+                            needs_regeneration = True
+                            logger.info(
+                                "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Stale metadata detected "
+                                "(no subcategory field): regenerating specs for Product %s",
+                                product.name
+                            )
+                    except Exception:
+                        needs_regeneration = True
+                    break
+
+        if needs_regeneration:
+            if specs:  # delete stale specs before regenerating
+                for old_spec in specs:
+                    await db.delete(old_spec)
+                await db.flush()
             generated_specs = generate_specs_for_product(product)
             specs_to_add = []
             for s_name, s_val in generated_specs.items():
@@ -347,25 +372,26 @@ class ProductKnowledgeService:
             await db.commit()
             specs = specs_to_add
 
-        # Exclude special sales metadata from generic user-facing spec_dict
+        # Build user-facing spec_dict — exclude ALL underscore-prefixed internal fields.
+        # _sales_metadata_ is parsed separately; any other _-prefixed key is also suppressed.
         spec_dict = {}
         sales_metadata = {}
         for s in specs:
             name_lower = s.specification_name.lower().strip()
-            if name_lower == "_sales_metadata_":
-                try:
-                    sales_metadata = json.loads(s.specification_value)
-                except Exception as e:
-                    logger.warning("Failed to parse sales metadata JSON: %s", e)
-            else:
-                spec_dict[name_lower] = s.specification_value
+            if name_lower.startswith("_"):
+                # Internal field — parse sales metadata if applicable, then skip
+                if name_lower == "_sales_metadata_":
+                    try:
+                        sales_metadata = json.loads(s.specification_value)
+                    except Exception as e:
+                        logger.warning("Failed to parse sales metadata JSON: %s", e)
+                continue  # never add to spec_dict
+            spec_dict[name_lower] = s.specification_value
 
-        # Add catalog fields to spec dict
+        # Add only customer-relevant catalog fields; internal metrics are excluded
         spec_dict["category"] = product.category
         spec_dict["price"] = f"INR {product.selling_price:,.2f}"
-        spec_dict["stock"] = f"{product.stock_quantity} units available"
-        spec_dict["popularity"] = f"{round((product.popularity_index or 0.0) / 20.0, 1)}/5.0"
-        spec_dict["return rate"] = f"{round(product.return_rate or 0.0, 2)}%"
+        # Note: stock, popularity, and return_rate are internal metrics — not added to spec_dict
 
         matched_spec_name = None
         matched_spec_val = None
@@ -396,16 +422,19 @@ class ProductKnowledgeService:
                     matched_spec_val = val
                     break
 
-        if matched_spec_name and matched_spec_val:
+        # Internal catalog fields that should never be surfaced as direct spec answers.
+        # These are operational/internal metrics, not customer-facing selling points.
+        _INTERNAL_CATALOG_FIELDS = {"stock", "popularity", "return rate", "price", "category"}
+
+        if matched_spec_name and matched_spec_val and matched_spec_name not in _INTERNAL_CATALOG_FIELDS:
             logger.info(
                 "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Catalog Match Found. Spec Name: '%s', Value: '%s'",
                 matched_spec_name, matched_spec_val
             )
             return ProductAnswer(
                 customer_response=(
-                    f"Regarding the {product.name}, the official database record indicates:\n"
-                    f"- **{matched_spec_name.title()}**: {matched_spec_val}\n\n"
-                    f"Is there anything else you would like to know or negotiate?"
+                    f"The {product.name} — {matched_spec_name.title()}: {matched_spec_val}.\n\n"
+                    f"Anything else you'd like to know about it?"
                 ),
                 source="catalog",
                 confidence=1.0,
@@ -780,51 +809,208 @@ class ProductKnowledgeService:
                             return ans
             except Exception as e:
                 logger.error("LLM web extraction failed: %s", e)        # --- LEVEL 2: Metadata / Attribute Inference ---
-        # Look up standard B2B objections, use cases, customer segments, advantages,
-        # or attributes inside sales_metadata and specs.
+        # Route natural-language sales, comparison, recommendation, and concern
+        # questions directly to the appropriate sales metadata fields.
+        # All responses use conversational wrappers — no raw field names or JSON.
         inferred_ans = None
         inferred_notes = ""
-        
-        if sales_metadata:
-            # Match pricing objections
-            if "price" in q_lower or "expensive" in q_lower or "cost" in q_lower or "discount" in q_lower:
-                inferred_ans = sales_metadata.get("objection_handling", {}).get("price")
-                inferred_notes = "Level 2: Pricing objection resolved from sales metadata"
-            # Match warranty concerns
-            elif "warranty" in q_lower or "guarantee" in q_lower:
-                inferred_ans = sales_metadata.get("objection_handling", {}).get("warranty")
-                inferred_notes = "Level 2: Warranty concern resolved from sales metadata"
-            # Match maintenance concerns
-            elif "maintenance" in q_lower or "service" in q_lower or "clean" in q_lower or "repair" in q_lower:
-                inferred_ans = sales_metadata.get("objection_handling", {}).get("maintenance")
-                inferred_notes = "Level 2: Maintenance concern resolved from sales metadata"
-            # Match compatibility concerns
-            elif "compatibility" in q_lower or "compatible" in q_lower or "work with" in q_lower or "support" in q_lower:
-                inferred_ans = sales_metadata.get("objection_handling", {}).get("compatibility")
-                inferred_notes = "Level 2: Compatibility concern resolved from sales metadata"
-            # Match longevity concerns
-            elif "longevity" in q_lower or "durable" in q_lower or "last" in q_lower or "lifetime" in q_lower:
-                inferred_ans = sales_metadata.get("objection_handling", {}).get("longevity")
-                inferred_notes = "Level 2: Longevity concern resolved from sales metadata"
-            # Match customer segment queries
-            elif "customer" in q_lower or "who buys" in q_lower or "target" in q_lower or "segment" in q_lower:
-                inferred_ans = f"This product is highly popular among {sales_metadata.get('ideal_customer')}."
-                inferred_notes = "Level 2: Target segment resolved from sales metadata"
-            # Match use cases
-            elif "use case" in q_lower or "scenario" in q_lower or "where can I use" in q_lower or "suitable for" in q_lower:
-                cases_str = ", ".join(sales_metadata.get("use_cases", []))
-                inferred_ans = f"Typical deployment and use cases for this model include: {cases_str}."
-                inferred_notes = "Level 2: Use cases resolved from sales metadata"
-            # Match highlights/advantages
-            elif "advantage" in q_lower or "why buy" in q_lower or "highlight" in q_lower or "stand out" in q_lower or "feature" in q_lower:
-                advs_str = "\n".join(f"• {adv}" for adv in sales_metadata.get("key_advantages", []))
-                inferred_ans = f"Here are the major highlights and advantages of selecting this model:\n{advs_str}"
-                inferred_notes = "Level 2: Key advantages resolved from sales metadata"
 
-        if inferred_ans:
+        if sales_metadata:
+            ideal_customer = sales_metadata.get("ideal_customer", "")
+            use_cases = sales_metadata.get("use_cases", [])
+            key_advantages = sales_metadata.get("key_advantages", [])
+            objection = sales_metadata.get("objection_handling", {})
+
+            # --- Who buys / target customer ---
+            if any(p in q_lower for p in [
+                "who buys", "who typically", "who usually", "who is this for",
+                "who is the target", "target customer", "who purchases",
+                "who would buy", "who should buy",
+            ]):
+                top_seg = ideal_customer.split(",")[0].strip() if "," in ideal_customer else ideal_customer
+                inferred_ans = (
+                    f"This tends to be a popular choice among {top_seg}. "
+                    f"Does that match your team's profile?"
+                )
+                inferred_notes = "Level 2: Target segment resolved from sales metadata"
+
+            # --- Why buy / recommendation / worth it ---
+            elif any(p in q_lower for p in [
+                "why buy", "why should i", "why choose", "would you recommend",
+                "is it worth", "worth buying", "good choice", "worth it",
+                "should i buy", "would this be a good",
+            ]):
+                top_3 = key_advantages[:3]
+                bullets = "\n".join(f"• {a}" for a in top_3)
+                inferred_ans = (
+                    f"A few reasons customers tend to choose this:\n{bullets}\n\n"
+                    f"Want me to dig into any of these?"
+                )
+                inferred_notes = "Level 2: Recommendation resolved from key_advantages"
+
+            # --- What makes it stand out / differentiator / highlights ---
+            elif any(p in q_lower for p in [
+                "stand out", "what makes", "differentiator", "unique", "highlight",
+                "advantage", "what's special", "what is special",
+            ]):
+                top_3 = key_advantages[:3]
+                bullets = "\n".join(f"• {a}" for a in top_3)
+                inferred_ans = (
+                    f"Here's what tends to set this apart:\n{bullets}\n\n"
+                    f"Anything specific you'd like to know more about?"
+                )
+                inferred_notes = "Level 2: Differentiators resolved from key_advantages"
+
+            # --- Downsides / concerns / limitations ---
+            elif any(p in q_lower for p in [
+                "downside", "limitation", "drawback", "cons", "problem",
+                "issue", "weakness", "any concerns", "i should know",
+            ]):
+                top_use = use_cases[0] if use_cases else "everyday use"
+                top_adv = key_advantages[0] if key_advantages else "solid reliability"
+                inferred_ans = (
+                    f"No product is perfect for every scenario. This one is optimised for {top_use}, "
+                    f"where {top_adv.lower()} is a real strength. "
+                    f"If your requirements are very different, I'd be happy to help evaluate the fit."
+                )
+                inferred_notes = "Level 2: Limitation/concern handled from use_cases and advantages"
+
+            # --- Comparison / alternatives ---
+            elif any(p in q_lower for p in [
+                "compare", "how does this", "how is this different", "alternative",
+                "vs ", " vs", "versus", "better than",
+            ]):
+                top_3 = key_advantages[:3]
+                bullets = "\n".join(f"• {a}" for a in top_3)
+                inferred_ans = (
+                    f"Compared to alternatives in this space, this model holds its own particularly on:\n{bullets}\n\n"
+                    f"Would you like to do a side-by-side comparison with a specific product?"
+                )
+                inferred_notes = "Level 2: Comparison handled from key_advantages"
+
+            # --- Good for travel / portable ---
+            elif any(p in q_lower for p in [
+                "travel", "portable", "portability", "on the go", "take it anywhere",
+                "lightweight",
+            ]):
+                travel_case = next(
+                    (c for c in use_cases if any(k in c.lower() for k in ["travel", "portable", "go", "outdoor", "commut"])),
+                    use_cases[0] if use_cases else None
+                )
+                if travel_case:
+                    inferred_ans = (
+                        f"Yes — portability is one of the strengths here. "
+                        f"Customers often choose this for {travel_case.lower()}. "
+                        f"Is this for personal travel or a team deployment?"
+                    )
+                else:
+                    inferred_ans = (
+                        f"Portability depends on your specific needs. "
+                        f"Let me know what you have in mind and I can give you a more specific answer."
+                    )
+                inferred_notes = "Level 2: Travel/portability resolved from use_cases"
+
+            # --- Good for students / specific audiences ---
+            elif any(p in q_lower for p in [
+                "student", "students", "education", "school", "university", "college",
+            ]):
+                edu_case = next(
+                    (c for c in use_cases if any(k in c.lower() for k in ["student", "education", "learning", "study"])),
+                    None
+                )
+                seg_match = "student" in ideal_customer.lower() or "education" in ideal_customer.lower()
+                if edu_case or seg_match:
+                    inferred_ans = (
+                        f"Yes, students are among the key users for this. "
+                        f"It works particularly well for {edu_case.lower() if edu_case else 'academic and personal use'}. "
+                        f"Are you evaluating this for individual students or a department purchase?"
+                    )
+                else:
+                    inferred_ans = (
+                        f"It can work for students depending on the use case. "
+                        f"What specifically are they looking to use it for?"
+                    )
+                inferred_notes = "Level 2: Student/education suitability resolved from metadata"
+
+            # --- Good for professionals / enterprise / business ---
+            elif any(p in q_lower for p in [
+                "professional", "enterprise", "business use", "office", "corporate",
+                "team use", "business team",
+            ]):
+                top_seg = ideal_customer.split(",")[0].strip() if "," in ideal_customer else ideal_customer
+                top_case = use_cases[0] if use_cases else "professional use"
+                inferred_ans = (
+                    f"Absolutely — this is well suited for {top_seg}. "
+                    f"Most teams use it for {top_case.lower()}. "
+                    f"How many units are you considering?"
+                )
+                inferred_notes = "Level 2: Professional/enterprise suitability resolved from metadata"
+
+            # --- Is it good for X / suitable for X / best for X ---
+            elif any(p in q_lower for p in [
+                "good for", "suitable for", "perfect for", "ideal for", "best for",
+                "work for", "use for",
+            ]):
+                top_2 = use_cases[:2]
+                cases_str = " and ".join(c.lower() for c in top_2) if len(top_2) > 1 else top_2[0].lower() if top_2 else "everyday use"
+                inferred_ans = (
+                    f"It tends to work especially well for {cases_str}. "
+                    f"Is that the kind of scenario you have in mind?"
+                )
+                inferred_notes = "Level 2: Use-case suitability resolved from use_cases"
+
+            # --- General use cases / scenarios ---
+            elif any(p in q_lower for p in [
+                "use case", "use for", "scenario", "where can", "applications",
+            ]):
+                top_2 = use_cases[:2]
+                cases_str = " and ".join(c.lower() for c in top_2) if len(top_2) > 1 else top_2[0].lower() if top_2 else "everyday use"
+                inferred_ans = (
+                    f"This works really well for {cases_str}. "
+                    f"Is that the kind of scenario you have in mind?"
+                )
+                inferred_notes = "Level 2: Use cases resolved from sales metadata"
+
+            # --- Price / value for money ---
+            elif any(p in q_lower for p in [
+                "price", "expensive", "cost", "value for money", "worth the price",
+                "good value", "affordable", "budget",
+            ]):
+                inferred_ans = objection.get("price", "")
+                if inferred_ans:
+                    inferred_ans += "\n\nWould you like to discuss volume pricing?"
+                inferred_notes = "Level 2: Pricing objection resolved from sales metadata"
+
+            # --- Warranty ---
+            elif any(p in q_lower for p in ["warranty", "guarantee", "after-sales", "support plan"]):
+                inferred_ans = objection.get("warranty", "")
+                inferred_notes = "Level 2: Warranty concern resolved from sales metadata"
+
+            # --- Maintenance ---
+            elif any(p in q_lower for p in [
+                "maintenance", "upkeep", "clean", "repair", "service",
+            ]):
+                inferred_ans = objection.get("maintenance", "")
+                inferred_notes = "Level 2: Maintenance concern resolved from sales metadata"
+
+            # --- Compatibility ---
+            elif any(p in q_lower for p in [
+                "compatible", "compatibility", "work with", "integration",
+            ]):
+                inferred_ans = objection.get("compatibility", "")
+                inferred_notes = "Level 2: Compatibility concern resolved from sales metadata"
+
+            # --- Longevity / durability ---
+            elif any(p in q_lower for p in [
+                "longevity", "durable", "how long", "lifetime", "last long",
+            ]):
+                inferred_ans = objection.get("longevity", "")
+                inferred_notes = "Level 2: Longevity concern resolved from sales metadata"
+
+        if inferred_ans and inferred_ans.strip():
             logger.info("[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Level 2 Inference Successful: %s", inferred_notes)
             ans = ProductAnswer(
-                customer_response=f"Regarding the {product.name}:\n\n{inferred_ans}",
+                customer_response=inferred_ans.strip(),
                 source="general_knowledge",
                 confidence=0.85,
                 internal_notes=inferred_notes,
@@ -835,36 +1021,67 @@ class ProductKnowledgeService:
             return ans
 
         # --- LEVEL 3: LLM-Generated Consultative Estimate ---
-        # Generate a consultative response. We use soft phrasing like "is typically"
-        # or "is generally" instead of hallucinating absolute certainty.
+        # Before calling the LLM, check if the question asks about a highly-specific
+        # technical feature that cannot be verified from available metadata.
+        # In that case, return an honest hedge rather than risk fabricating certainty.
+        _HIGHLY_SPECIFIC_FEATURES = [
+            "satellite", "lidar", "infrared", "5g mmwave", "mmwave", "usb4", "usb 4",
+            "wi-fi 7", "wifi 7", "uwb", "ultra-wideband", "tof sensor", "depth sensor",
+            "lte band", "frequency band", "sar rating", "mil-spec", "mil spec",
+            "hdr10+", "dolby vision", "atmos", "quantum dot",
+        ]
+        feature_hit = next((f for f in _HIGHLY_SPECIFIC_FEATURES if f in q_lower), None)
+        if feature_hit and is_strict:
+            category_str = product.category or "this segment"
+            hedge_text = (
+                f"I couldn't verify {feature_hit} support for this specific model. "
+                f"Products in {category_str} increasingly include capabilities like this, "
+                f"but I'd recommend confirming the exact configuration before your procurement decision."
+            )
+            logger.info(
+                "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Level 3 hedge triggered for feature: %s", feature_hit
+            )
+            ans = ProductAnswer(
+                customer_response=hedge_text,
+                source="general_knowledge",
+                confidence=0.50,
+                internal_notes=f"Level 3 hedge: highly specific feature '{feature_hit}' could not be verified.",
+                resolved_attribute=canonical_attr,
+                resolved_value=hedge_text
+            )
+            await save_to_cache(cache_key, ans)
+            return ans
+
+        # Generate a consultative LLM estimate. Use soft phrasing — never hallucinate certainty.
         logger.info(
             "[DIAGNOSTICS - SPECIFICATION RETRIEVAL] Triggering Level 3 Consultative LLM Estimate. "
             "Product: %s, Category: %s", product.name, product.category
         )
-        
+
         # Prepare context data for LLM
         catalog_specs_text = "\n".join(f"- {name}: {val}" for name, val in spec_dict.items())
         metadata_summary = ""
         if sales_metadata:
             metadata_summary = (
-                f"Ideal Customer Segments: {sales_metadata.get('ideal_customer')}\n"
+                f"Ideal Customer: {sales_metadata.get('ideal_customer')}\n"
                 f"Use Cases: {', '.join(sales_metadata.get('use_cases', []))}\n"
-                f"Key Advantages: {', '.join(sales_metadata.get('key_advantages', []))}\n"
+                f"Key Strengths: {', '.join(sales_metadata.get('key_advantages', []))}\n"
             )
 
         system_prompt = (
-            "You are a consultative B2B sales consultant. Your task is to answer a customer's product question "
-            "using available catalog specifications, description, and B2B sales metadata.\n"
-            "CRITICAL RULES:\n"
-            "1. NEVER return 'Specification unavailable', 'Information not found', or 'No data available'.\n"
-            "2. If you are not 100% certain, do NOT make up precise technical details. Instead, use soft, "
-            "consultative phrasing (e.g. 'Products in this category are typically supplied with...', "
-            "'This model generally includes...', 'For this type of equipment, standard configurations usually offer...').\n"
-            "3. Keep the response professional, helpful, and focused on driving B2B value.\n"
-            "Return a JSON object conforming exactly to this schema:\n"
+            "You are a knowledgeable, consultative sales rep. Answer the customer's product question naturally.\n"
+            "RULES:\n"
+            "1. NEVER say 'Specification unavailable', 'not found', or 'no data'.\n"
+            "2. If unsure of a specific detail, use soft phrasing: 'typically', 'generally', 'usually', "
+            "'most models in this range'. Do NOT invent specific numbers or model codes.\n"
+            "3. Sound like a helpful salesperson — conversational, not corporate.\n"
+            "4. Keep the response under 80 words. Use 2–3 short sentences. "
+            "End with one follow-up question if possible. No long paragraphs.\n"
+            "5. Do NOT use bullet points unless listing fewer than 4 items that genuinely need it.\n"
+            "Return a JSON object with this schema:\n"
             "{\n"
-            "  \"answer\": \"your consultative answer or estimate\",\n"
-            "  \"confidence\": 0.75  // float between 0.0 and 1.0\n"
+            "  \"answer\": \"your conversational response\",\n"
+            "  \"confidence\": 0.75\n"
             "}\n"
         )
         

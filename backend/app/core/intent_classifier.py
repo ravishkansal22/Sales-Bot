@@ -108,6 +108,72 @@ async def classify_intent(
         )
 
     # ==========================================================
+    # Sales Advice (BEFORE product_question and negotiation)
+    # Captures recommendation, value, and purchase-advice questions.
+    # ==========================================================
+
+    sales_advice_phrases = [
+        "why should i buy",
+        "why buy this",
+        "why buy the",
+        "would you recommend",
+        "do you recommend",
+        "is it worth",
+        "worth it",
+        "worth the money",
+        "worth the price",
+        "should i buy",
+        "is this a good buy",
+        "good buy",
+        "good investment",
+        "why choose this",
+        "why choose the",
+        "what makes this stand out",
+        "what makes it stand out",
+        "why do customers buy",
+        "recommend this",
+        "is this worth",
+        "is it a good",
+    ]
+
+    if any(phrase in msg_lower for phrase in sales_advice_phrases):
+        return IntentClassification(
+            intent="sales_advice",
+            confidence=0.97,
+            reasoning="Sales advice or recommendation question detected.",
+            target_product_ids=[]
+        )
+
+    # ==========================================================
+    # Extended Warranty (BEFORE product_question)
+    # Captures warranty upsell / additional coverage requests.
+    # ==========================================================
+
+    extended_warranty_phrases = [
+        "extended warranty",
+        "additional warranty",
+        "extra warranty",
+        "warranty extension",
+        "add warranty",
+        "more warranty",
+        "additional year of warranty",
+        "extra year of warranty",
+        "extra year warranty",
+        "support package",
+        "service plan",
+        "maintenance plan",
+        "additional year",
+    ]
+
+    if any(phrase in msg_lower for phrase in extended_warranty_phrases):
+        return IntentClassification(
+            intent="extended_warranty",
+            confidence=0.97,
+            reasoning="Extended warranty or service plan request detected.",
+            target_product_ids=[]
+        )
+
+    # ==========================================================
     # Product Questions
     # ==========================================================
 
@@ -217,6 +283,8 @@ async def classify_intent(
             target_product_ids=[],
             sub_intent="competitor_leverage"
         )
+
+
 
     # ==========================================================
     # Negotiation

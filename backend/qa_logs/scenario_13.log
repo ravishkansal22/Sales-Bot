@@ -28,3 +28,11 @@
 [2026-06-21 22:50:29] RESULT: PASSED - {'search_status': 200, 'negotiate_status': 200, 'lock_status': 200, 'checkout_status': 200}
 [2026-06-27 23:56:27] Starting Scenario 13: Full offline deterministic flow (Internet, Groq, Ollama unavailable).
 [2026-06-27 23:56:27] RESULT: FAILED - {'search_status': 200, 'negotiate_status': 200, 'lock_status': 400, 'checkout_status': 200}
+[2026-06-28 12:50:10] Starting Scenario 13: Full offline deterministic flow (Internet, Groq, Ollama unavailable).
+[2026-06-28 12:50:10] RESULT: FAILED - {'search_status': 200, 'negotiate_status': 200, 'lock_status': 400, 'checkout_status': 200}
+[2026-06-28 14:04:42] Starting Scenario 13: Full offline deterministic flow (Internet, Groq, Ollama unavailable).
+[2026-06-28 14:04:42] RESULT: FAILED - {'search_status': 200, 'negotiate_status': 200, 'lock_status': 400, 'checkout_status': 200}
+[2026-06-28 14:06:04] Starting Scenario 13: Full offline deterministic flow (Internet, Groq, Ollama unavailable).
+[2026-06-28 14:06:04] RESULT: FAILED - {'search_status': 200, 'negotiate_status': 200, 'lock_status': 400, 'checkout_status': 200}
+[2026-06-28 14:07:04] Starting Scenario 13: Full offline deterministic flow (Internet, Groq, Ollama unavailable).
+[2026-06-28 14:07:04] RESULT: FAILED - {'search_status': 200, 'negotiate_status': 200, 'lock_status': 400, 'checkout_status': 200}

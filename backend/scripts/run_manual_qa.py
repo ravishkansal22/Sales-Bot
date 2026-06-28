@@ -437,7 +437,6 @@ class QASuite:
         mock_result = MagicMock()
         
         async def get_side_effect(model, ident):
-            print(f"[QA DEBUG] db.get called: model={model}, type={type(model)}, ident={ident}", flush=True)
             model_name = getattr(model, "__name__", str(model))
             if "Customer" in model_name:
                 return mock_customer

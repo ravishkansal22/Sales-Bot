@@ -475,6 +475,86 @@ async def chat(
                 assistant_message_id=str(assistant_turn.id)
             )
 
+        # ------------------------------------------------------------------
+        # Product Switch Detection (conservative)
+        # Fires only when: (a) a product category keyword is mentioned AND
+        # (b) a purchase/comparison/procurement intent signal is present AND
+        # (c) the mentioned category differs from the active product's subcategory.
+        # Does NOT fire on casual contextual mentions ("I use my laptop for work").
+        # ------------------------------------------------------------------
+        _CATEGORY_KEYWORDS: dict[str, list[str]] = {
+            "smartphone": ["smartphone", "phone", "mobile phone", "smartphones"],
+            "smartwatch": ["smartwatch", "smart watch", "smartwatches", "fitness tracker"],
+            "speaker": ["speaker", "speakers", "soundbar", "bluetooth speaker"],
+            "laptop": ["laptop", "laptops", "notebook", "notebooks"],
+            "tablet": ["tablet", "tablets"],
+            "headphones": ["headphone", "headphones", "earphone", "earbuds"],
+            "camera": ["camera", "cameras"],
+        }
+        _SWITCH_INTENT_SIGNALS = [
+            "i need", "we need", "i want", "we want", "show me", "show us",
+            "i'm looking for", "looking for", "find me", "get me",
+            "i want to buy", "we want to buy", "purchase", "compare",
+            "switch to", "change to", "order", "can we get",
+        ]
+        if product and classification.intent in ("negotiation", "product_question", "product_comparison", "product_discovery"):
+            _msg_lower_switch = request.message.lower()
+            _mentioned_cat = None
+            for _cat, _keywords in _CATEGORY_KEYWORDS.items():
+                if any(_kw in _msg_lower_switch for _kw in _keywords):
+                    _mentioned_cat = _cat
+                    break
+            _has_switch_signal = any(_sig in _msg_lower_switch for _sig in _SWITCH_INTENT_SIGNALS)
+            if _mentioned_cat and _has_switch_signal:
+                from app.services.product_intelligence_generator import _detect_subcategory
+                _active_sub = _detect_subcategory(
+                    product.name,
+                    (product.category or "").lower()
+                )
+                if _mentioned_cat != _active_sub:
+                    _switch_response = (
+                        f"I noticed you're asking about {_mentioned_cat}s while we currently "
+                        f"have the {product.name} selected.\n\n"
+                        f"Would you like me to switch our discussion to {_mentioned_cat}s instead?"
+                    )
+                    _user_turn = Conversation(
+                        id=uuid.uuid4(), customer_id=customer.id,
+                        message=request.message, role="user",
+                        analysis={"intent_type": "product_switch_prompt"},
+                        created_at=datetime.now(UTC)
+                    )
+                    _asst_turn = Conversation(
+                        id=uuid.uuid4(), customer_id=customer.id,
+                        message=_switch_response, role="assistant",
+                        analysis={"intent_type": "product_switch_prompt"},
+                        created_at=datetime.now(UTC)
+                    )
+                    db.add(_user_turn)
+                    db.add(_asst_turn)
+                    await db.commit()
+                    _existing_snap = await _load_latest_twin_snapshot(db, customer.id)
+                    _dtwin = _snapshot_to_twin_profile(_existing_snap) if _existing_snap else DigitalTwinProfile(
+                        price_sensitivity=0.5, urgency=0.5, risk_aversion=0.5,
+                        brand_loyalty=0.5, decision_speed=0.5
+                    )
+                    return ChatResponse(
+                        digital_twin=_dtwin, simulations=[], response=_switch_response,
+                        winner=OptimizerResult(
+                            winning_strategy="initial", score=1.0,
+                            optimization_mode=OptimizationMode.BALANCED,
+                            optimizer_reasoning="Product switch prompt issued.",
+                            winning_factors=["Switch Detection"],
+                            risk_score=0.0, confidence_score=1.0, all_rankings=[]
+                        ),
+                        internal_reasoning="Product category mismatch detected — switch confirmation requested.",
+                        intent_type="product_question",
+                        inventory_status="Available",
+                        near_minimum_price=False,
+                        client_message_id=request.client_message_id,
+                        assistant_message_id=str(_asst_turn.id)
+                    )
+        # ------------------------------------------------------------------
+
         # Route custom non-negotiation intents
         if classification.intent == "commercial_terms":
             # Save user message
@@ -572,55 +652,81 @@ async def chat(
             if product:
                 answer = await knowledge_service.answer_product_question(product, request.message, db)
                 
-                # Check for general specs query and aggregate known specifications
+                # Subcategory-aware specification summary:
+                # Detects product subcategory and presents priority-ordered specs.
+                # Caps at 6 bullets, filters all _-prefixed internal fields.
                 msg_lower = request.message.lower()
                 general_spec_keywords = [
                     "what specifications", "general specifications", "what specs", "list specifications", "list specs",
-                    "available specifications", "available specs", "share specifications", "share specs", "show specifications",
-                    "show specs", "tell me about the specifications", "details on specifications", "details on specs"
+                    "available specifications", "available specs", "share specifications", "share specs",
+                    "show specifications", "show specs", "tell me about the specifications",
+                    "details on specifications", "details on specs",
                 ]
                 from app.services.product_knowledge_service import normalize_attribute
                 is_general_specs = any(phrase in msg_lower for phrase in general_spec_keywords) or (
-                    ("specification" in msg_lower or "specs" in msg_lower or "features" in msg_lower or "details" in msg_lower) and not normalize_attribute(msg_lower)
+                    ("specification" in msg_lower or "specs" in msg_lower or "features" in msg_lower or "details" in msg_lower)
+                    and not normalize_attribute(msg_lower)
                 )
-                
+
                 if is_general_specs:
                     from app.models.product_specification import ProductSpecification
+                    from app.services.product_intelligence_generator import _detect_subcategory
+
+                    # Per-subcategory spec priority lists (customer-facing order)
+                    _SUBCATEGORY_SPEC_PRIORITY: dict[str, list[str]] = {
+                        "smartphone":        ["display", "camera", "battery", "storage_options", "connectivity", "operating_system", "warranty"],
+                        "speaker":           ["audio_output", "battery", "connectivity", "water_resistance", "features", "warranty"],
+                        "headphones":        ["audio", "noise_cancellation", "battery", "connectivity", "comfort", "warranty"],
+                        "laptop":            ["processor", "ram_storage", "display", "battery", "weight", "connectivity", "warranty"],
+                        "smartwatch":        ["display", "battery", "health_sensors", "connectivity", "water_resistance", "warranty"],
+                        "tablet":            ["display", "processor", "battery", "storage_options", "connectivity", "warranty"],
+                        "camera":            ["sensor", "autofocus", "video", "stabilisation", "battery", "connectivity", "warranty"],
+                        "general_electronics": ["connectivity", "battery_life", "material", "portability", "compatibility", "warranty"],
+                        "apparel":           ["material", "available_sizes", "available_colors", "fit_type", "weather_suitability", "warranty"],
+                        "footwear":          ["material", "sole_type", "comfort_level", "activity_suitability", "sizes_available", "warranty"],
+                        "books":             ["edition", "page_count", "format", "audience_level", "language"],
+                        "home appliances":   ["energy_efficiency", "power_consumption", "dimensions", "warranty", "maintenance_frequency"],
+                    }
+
+                    # Detect subcategory for this product
+                    _cat_key = (product.category or "").lower()
+                    _sub = _detect_subcategory(product.name, _cat_key)
+                    _priority = _SUBCATEGORY_SPEC_PRIORITY.get(_sub) or _SUBCATEGORY_SPEC_PRIORITY.get(_cat_key) or []
+
+                    # Load specs from DB, filtering all internal (_-prefixed) fields
                     stmt_specs = select(ProductSpecification).where(ProductSpecification.product_id == product.id)
                     res_specs = await db.execute(stmt_specs)
                     db_specs = res_specs.scalars().all()
-                    
-                    specs_dict = {}
+
+                    clean_specs: dict[str, tuple[str, str]] = {}
                     for s in db_specs:
                         name_str = s.specification_name.strip()
+                        if name_str.startswith("_"):
+                            continue  # skip ALL internal fields
                         val_str = s.specification_value.strip()
-                        specs_dict[name_str.lower()] = (name_str, val_str)
-                    
-                    if history:
-                        for turn in history:
-                            if turn.get("role") == "assistant":
-                                msg = turn.get("message", "")
-                                matches = re.findall(r"[-*•]?\s*\*\*([^*]+)\*\*:\s*([^\n]+)", msg)
-                                for name, val in matches:
-                                    specs_dict[name.strip().lower()] = (name.strip(), val.strip())
-                                
-                                matches_sentences = re.findall(r"the\s+([a-zA-Z0-9_\s]{3,30})\s+is\s+([^.\n]+)", msg, re.IGNORECASE)
-                                for name, val in matches_sentences:
-                                    name_clean = name.strip().lower()
-                                    if name_clean not in ["only option", "first option", "best option", "negotiation", "price", "case", "concession", "discount"]:
-                                        specs_dict[name_clean] = (name.strip().title(), val.strip())
-                    
-                    if neg_context and neg_context.context_json:
-                        specs_cache = neg_context.context_json.get("known_specs_cache", {})
-                        for k, v in specs_cache.items():
-                            specs_dict[k.lower()] = (k.title(), v)
-                    
-                    if specs_dict:
-                        bullet_points = []
-                        for name, val in sorted(specs_dict.values(), key=lambda x: x[0]):
-                            bullet_points.append(f"• {name}: {val}")
-                        
-                        specs_text = "Available information includes:\n" + "\n".join(bullet_points) + "\n\nAdditional specifications can be provided if required."
+                        clean_specs[name_str.lower()] = (name_str, val_str)
+
+                    # Build ordered bullet list: priority specs first, then remainder, cap at 6
+                    ordered: list[tuple[str, str]] = []
+                    seen: set[str] = set()
+                    for pkey in _priority:
+                        if pkey in clean_specs and pkey not in seen:
+                            ordered.append(clean_specs[pkey])
+                            seen.add(pkey)
+                    for k, v in clean_specs.items():
+                        if k not in seen:
+                            ordered.append(v)
+                            seen.add(k)
+
+                    MAX_BULLETS = 6
+                    display_specs = ordered[:MAX_BULLETS]
+
+                    if display_specs:
+                        bullets = "\n".join(f"• {name}: {val}" for name, val in display_specs)
+                        specs_text = (
+                            f"Here are the key specs for the {product.name}:\n{bullets}\n\n"
+                            f"Would you like to know more about any of these?"
+                        )
                         answer.customer_response = specs_text
                         answer.source = "catalog_and_history"
                         answer.confidence = 1.0
@@ -715,6 +821,125 @@ async def chat(
                 )
             else:
                 raise HTTPException(status_code=400, detail="Please select a product from catalog first.")
+
+        # ------------------------------------------------------------------
+        # Sales Advice Handler
+        # Routes recommendation, value, and purchase-advice questions through
+        # the product knowledge Layer 2 metadata (key_advantages, use_cases).
+        # ------------------------------------------------------------------
+        elif classification.intent == "sales_advice":
+            if not product:
+                raise HTTPException(status_code=400, detail="Please select a product first.")
+
+            answer = await knowledge_service.answer_product_question(product, request.message, db)
+
+            _user_turn_sa = Conversation(
+                id=uuid.uuid4(), customer_id=customer.id, message=request.message,
+                role="user",
+                analysis={"intent_type": "sales_advice", "negotiation_intent": "information_gathering"},
+                created_at=datetime.now(UTC)
+            )
+            _asst_turn_sa = Conversation(
+                id=uuid.uuid4(), customer_id=customer.id, message=answer.customer_response,
+                role="assistant", analysis={"intent_type": "sales_advice"},
+                created_at=datetime.now(UTC)
+            )
+            db.add(_user_turn_sa)
+            db.add(_asst_turn_sa)
+            await db.commit()
+
+            _snap_sa = await _load_latest_twin_snapshot(db, customer.id)
+            _dt_sa = _snapshot_to_twin_profile(_snap_sa) if _snap_sa else DigitalTwinProfile(
+                price_sensitivity=0.5, urgency=0.5, risk_aversion=0.5,
+                brand_loyalty=0.5, decision_speed=0.5
+            )
+            return ChatResponse(
+                digital_twin=_dt_sa, simulations=[],
+                winner=OptimizerResult(
+                    winning_strategy="initial", score=1.0,
+                    optimization_mode=OptimizationMode.BALANCED,
+                    optimizer_reasoning="Sales advice query answered via product knowledge metadata.",
+                    winning_factors=["Product Knowledge Layer"],
+                    risk_score=0.0, confidence_score=1.0, all_rankings=[]
+                ),
+                response=answer.customer_response,
+                internal_reasoning=answer.internal_notes,
+                intent_type="product_question",
+                inventory_status="Available",
+                near_minimum_price=False,
+                client_message_id=request.client_message_id,
+                assistant_message_id=str(_asst_turn_sa.id)
+            )
+
+        # ------------------------------------------------------------------
+        # Extended Warranty Handler
+        # Routes additional warranty / service plan requests to a consultative
+        # upsell response using cross_sell_recommendations from sales metadata.
+        # ------------------------------------------------------------------
+        elif classification.intent == "extended_warranty":
+            if not product:
+                raise HTTPException(status_code=400, detail="Please select a product first.")
+
+            # Load sales metadata to personalise the upsell response
+            import json as _json
+            from app.models.product_specification import ProductSpecification as _PS
+            _stmt_ew = select(_PS).where(_PS.product_id == product.id)
+            _res_ew = await db.execute(_stmt_ew)
+            _specs_ew = _res_ew.scalars().all()
+            _ew_meta: dict = {}
+            for _s in _specs_ew:
+                if _s.specification_name.lower().strip() == "_sales_metadata_":
+                    try:
+                        _ew_meta = _json.loads(_s.specification_value)
+                    except Exception:
+                        pass
+                    break
+
+            _base_warranty = _ew_meta.get("objection_handling", {}).get("warranty", "")
+            _ew_response = (
+                f"Extended warranty options are typically available for business purchases. "
+                f"Would you like me to include an additional year of coverage in this proposal?\n\n"
+                f"{_base_warranty}".strip() if _base_warranty else
+                f"Extended warranty options are typically available for business purchases. "
+                f"Would you like me to include an additional year of coverage in the proposal?"
+            )
+
+            _user_turn_ew = Conversation(
+                id=uuid.uuid4(), customer_id=customer.id, message=request.message,
+                role="user", analysis={"intent_type": "extended_warranty"},
+                created_at=datetime.now(UTC)
+            )
+            _asst_turn_ew = Conversation(
+                id=uuid.uuid4(), customer_id=customer.id, message=_ew_response,
+                role="assistant", analysis={"intent_type": "extended_warranty"},
+                created_at=datetime.now(UTC)
+            )
+            db.add(_user_turn_ew)
+            db.add(_asst_turn_ew)
+            await db.commit()
+
+            _snap_ew = await _load_latest_twin_snapshot(db, customer.id)
+            _dt_ew = _snapshot_to_twin_profile(_snap_ew) if _snap_ew else DigitalTwinProfile(
+                price_sensitivity=0.5, urgency=0.5, risk_aversion=0.5,
+                brand_loyalty=0.5, decision_speed=0.5
+            )
+            return ChatResponse(
+                digital_twin=_dt_ew, simulations=[],
+                winner=OptimizerResult(
+                    winning_strategy="initial", score=1.0,
+                    optimization_mode=OptimizationMode.BALANCED,
+                    optimizer_reasoning="Extended warranty upsell presented.",
+                    winning_factors=["Extended Warranty Handler"],
+                    risk_score=0.0, confidence_score=1.0, all_rankings=[]
+                ),
+                response=_ew_response,
+                internal_reasoning="Extended warranty request routed to upsell handler.",
+                intent_type="product_question",
+                inventory_status="Available",
+                near_minimum_price=False,
+                client_message_id=request.client_message_id,
+                assistant_message_id=str(_asst_turn_ew.id)
+            )
 
         elif classification.intent == "product_comparison":
             comparison = await knowledge_service.compare_products(request.message, product, db)
@@ -1889,21 +2114,23 @@ async def select_product_endpoint(
                 except Exception as e:
                     logger.warning("Failed to load sales metadata: %s", e)
 
-        # 7. Construct proactive consultative sales overview
+        # 7. Construct proactive consultative sales overview (60-80 words, concise)
         use_cases_list = sales_metadata.get("use_cases", ["general commercial use"])
-        use_cases_str = ", ".join(use_cases_list)
-        
+        top_2_cases = use_cases_list[:2]
+        cases_str = " and ".join(c.lower() for c in top_2_cases) if len(top_2_cases) > 1 else top_2_cases[0].lower()
+
         advantages_list = sales_metadata.get("key_advantages", ["High reliability", "Easy deployment"])
-        highlights_str = "\n".join(f"• {adv}" for adv in advantages_list[:4])
-        
-        segments_str = sales_metadata.get("ideal_customer", "B2B procurement teams")
+        highlights_str = "\n".join(f"• {adv}" for adv in advantages_list[:3])
+
+        segments_raw = sales_metadata.get("ideal_customer", "professionals and teams")
+        primary_segment = segments_raw.split(",")[0].strip() if "," in segments_raw else segments_raw
 
         welcome_text = (
-            f"You are currently evaluating the {product.name}.\n\n"
-            f"Customers typically choose this product because it performs particularly well for {use_cases_str}.\n\n"
-            f"Key highlights include:\n{highlights_str}\n\n"
-            f"This product is especially popular among {segments_str}.\n\n"
-            f"Are you evaluating this for personal use, resale, or organizational deployment?"
+            f"You're looking at the {product.name}.\n\n"
+            f"Customers typically choose it for {cases_str}.\n"
+            f"{highlights_str}\n\n"
+            f"It's popular among {primary_segment}.\n\n"
+            f"Who's this for — personal use or a larger team?"
         )
 
         welcome_turn = Conversation(
