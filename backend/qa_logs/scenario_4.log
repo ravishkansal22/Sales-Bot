@@ -30,3 +30,17 @@
 [2026-06-21 22:48:32] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}
 [2026-06-21 22:50:16] Starting Scenario 4: Reload / recovery from stale UUID session.
 [2026-06-21 22:50:16] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}
+[2026-06-27 23:53:36] Starting Scenario 4: Reload / recovery from stale UUID session.
+[2026-06-27 23:53:36] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}
+[2026-06-27 23:54:04] Starting Scenario 4: Reload / recovery from stale UUID session.
+[2026-06-27 23:54:04] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}
+[2026-06-27 23:54:15] Starting Scenario 4: Reload / recovery from stale UUID session.
+[2026-06-27 23:54:15] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}
+[2026-06-27 23:54:53] Starting Scenario 4: Reload / recovery from stale UUID session.
+[2026-06-27 23:54:53] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}
+[2026-06-27 23:55:17] Starting Scenario 4: Reload / recovery from stale UUID session.
+[2026-06-27 23:55:17] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}
+[2026-06-27 23:55:29] Starting Scenario 4: Reload / recovery from stale UUID session.
+[2026-06-27 23:55:29] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}
+[2026-06-27 23:56:12] Starting Scenario 4: Reload / recovery from stale UUID session.
+[2026-06-27 23:56:13] RESULT: PASSED - {'status_code': 200, 'context_recovered': True}

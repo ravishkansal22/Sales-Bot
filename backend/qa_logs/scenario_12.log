@@ -27,3 +27,5 @@
 [2026-06-21 22:48:45] RESULT: PASSED - {'circuit_tripped': True, 'groq_attempted_after_trip': False}
 [2026-06-21 22:50:26] Starting Scenario 12: Repeated Groq failures trip circuit breaker.
 [2026-06-21 22:50:29] RESULT: PASSED - {'circuit_tripped': True, 'groq_attempted_after_trip': False}
+[2026-06-27 23:56:27] Starting Scenario 12: Repeated Groq failures trip circuit breaker.
+[2026-06-27 23:56:27] RESULT: FAILED - {'circuit_tripped': False, 'groq_attempted_after_trip': False}

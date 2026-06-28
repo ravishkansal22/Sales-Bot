@@ -1853,8 +1853,59 @@ async def select_product_endpoint(
         )
         db.add(initial_twin)
 
-        # 6. Save welcome message in Conversation
-        welcome_text = f"Welcome. We are evaluating a B2B agreement for {product.name} (Listed Price: ₹{product.selling_price:,.2f}). I am calibrated to negotiate bundles, custom terms, or discount requests. How would you like to proceed?"
+        # 6. Lazy Self-Healing Generation & B2B Sales Metadata extraction
+        # If no specifications exist for this product, generate them on-the-fly
+        # and store them. This ensures welcome messages and Q&A work dynamically.
+        import json
+        from app.models.product_specification import ProductSpecification
+        from app.services.product_intelligence_generator import generate_specs_for_product
+
+        stmt_spec = select(ProductSpecification).where(ProductSpecification.product_id == product.id)
+        res_spec = await db.execute(stmt_spec)
+        specs = res_spec.scalars().all()
+
+        if not specs:
+            logger.info("Self-healing specifications during select-product for: %s", product.name)
+            generated_specs = generate_specs_for_product(product)
+            specs_to_add = []
+            for s_name, s_val in generated_specs.items():
+                spec_obj = ProductSpecification(
+                    id=uuid.uuid4(),
+                    product_id=product.id,
+                    specification_name=s_name,
+                    specification_value=s_val
+                )
+                db.add(spec_obj)
+                specs_to_add.append(spec_obj)
+            await db.flush()
+            specs = specs_to_add
+
+        # Extract sales metadata
+        sales_metadata = {}
+        for s in specs:
+            if s.specification_name.lower().strip() == "_sales_metadata_":
+                try:
+                    sales_metadata = json.loads(s.specification_value)
+                except Exception as e:
+                    logger.warning("Failed to load sales metadata: %s", e)
+
+        # 7. Construct proactive consultative sales overview
+        use_cases_list = sales_metadata.get("use_cases", ["general commercial use"])
+        use_cases_str = ", ".join(use_cases_list)
+        
+        advantages_list = sales_metadata.get("key_advantages", ["High reliability", "Easy deployment"])
+        highlights_str = "\n".join(f"• {adv}" for adv in advantages_list[:4])
+        
+        segments_str = sales_metadata.get("ideal_customer", "B2B procurement teams")
+
+        welcome_text = (
+            f"You are currently evaluating the {product.name}.\n\n"
+            f"Customers typically choose this product because it performs particularly well for {use_cases_str}.\n\n"
+            f"Key highlights include:\n{highlights_str}\n\n"
+            f"This product is especially popular among {segments_str}.\n\n"
+            f"Are you evaluating this for personal use, resale, or organizational deployment?"
+        )
+
         welcome_turn = Conversation(
             id=uuid.uuid4(),
             customer_id=customer.id,

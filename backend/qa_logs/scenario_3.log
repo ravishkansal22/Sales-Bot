@@ -30,3 +30,17 @@
 [2026-06-21 22:48:32] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[General Knowledge Estimate]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n*Disclaimer: This is an estimate based on search results and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?', 'provider': 'groq'}
 [2026-06-21 22:50:15] Starting Scenario 3: Ask product color spec question.
 [2026-06-21 22:50:16] RESULT: PASSED - {'status_code': 200, 'answer_extracted': '**[General Knowledge Estimate]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n*Disclaimer: This is an estimate based on search results and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?', 'provider': 'groq'}
+[2026-06-27 23:53:36] Starting Scenario 3: Ask product color spec question.
+[2026-06-27 23:53:36] RESULT: PASSED - {'status_code': 200, 'answer_extracted': 'Regarding the Alpha Vacuum, the color is Space Gray.', 'provider': 'groq'}
+[2026-06-27 23:54:04] Starting Scenario 3: Ask product color spec question.
+[2026-06-27 23:54:04] RESULT: PASSED - {'status_code': 200, 'answer_extracted': 'Regarding the Alpha Vacuum, the color is Space Gray.', 'provider': 'groq'}
+[2026-06-27 23:54:14] Starting Scenario 3: Ask product color spec question.
+[2026-06-27 23:54:15] RESULT: PASSED - {'status_code': 200, 'answer_extracted': 'Regarding the Alpha Vacuum, the color is Space Gray.', 'provider': 'groq'}
+[2026-06-27 23:54:53] Starting Scenario 3: Ask product color spec question.
+[2026-06-27 23:54:53] RESULT: PASSED - {'status_code': 200, 'answer_extracted': 'Regarding the Alpha Vacuum, the color is Space Gray.', 'provider': 'groq'}
+[2026-06-27 23:55:17] Starting Scenario 3: Ask product color spec question.
+[2026-06-27 23:55:17] RESULT: PASSED - {'status_code': 200, 'answer_extracted': 'Regarding the Alpha Vacuum, the color is Space Gray.', 'provider': 'groq'}
+[2026-06-27 23:55:29] Starting Scenario 3: Ask product color spec question.
+[2026-06-27 23:55:29] RESULT: PASSED - {'status_code': 200, 'answer_extracted': 'Regarding the Alpha Vacuum, the color is Space Gray.', 'provider': 'groq'}
+[2026-06-27 23:56:12] Starting Scenario 3: Ask product color spec question.
+[2026-06-27 23:56:12] RESULT: PASSED - {'status_code': 200, 'answer_extracted': 'Regarding the Alpha Vacuum, the color is Space Gray.', 'provider': 'groq'}

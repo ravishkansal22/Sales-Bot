@@ -20,6 +20,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Configure sys path to include backend root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Reconfigure encoding for Windows compatibility when printing Rupee symbol
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from fastapi.testclient import TestClient
 from app.main import app
 from app.db.postgres import get_db
@@ -37,7 +43,7 @@ from app.models.negotiation_context import NegotiationContext
 from app.schemas.chat import ConversationAnalysis
 from app.schemas.simulation import DigitalTwinProfile, LLMStrategyOutput
 from app.core.response_generator import _LLMResponseOutput
-from app.services.product_knowledge_service import IntentClassification
+from app.core.intent_classifier import IntentClassification
 
 # Setup directory for QA logs
 LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "qa_logs")
@@ -189,6 +195,17 @@ class QASuite:
         mock_db = AsyncMock()
         mock_db._force_context = True
         mock_result = MagicMock()
+        
+        async def get_side_effect(model, ident):
+            model_name = getattr(model, "__name__", str(model))
+            if "Customer" in model_name:
+                return mock_customer
+            elif "Product" in model_name:
+                return mock_product
+            elif "NegotiationContext" in model_name:
+                return mock_context
+            return None
+        mock_db.get.side_effect = get_side_effect
         
         def first_side_effect():
             calls = mock_db.execute.call_args_list
@@ -418,6 +435,18 @@ class QASuite:
         mock_db = AsyncMock()
         mock_db._force_context = True
         mock_result = MagicMock()
+        
+        async def get_side_effect(model, ident):
+            print(f"[QA DEBUG] db.get called: model={model}, type={type(model)}, ident={ident}", flush=True)
+            model_name = getattr(model, "__name__", str(model))
+            if "Customer" in model_name:
+                return mock_customer
+            elif "Product" in model_name:
+                return mock_product
+            elif "NegotiationContext" in model_name:
+                return mock_context
+            return None
+        mock_db.get.side_effect = get_side_effect
         
         def first_side_effect():
             calls = mock_db.execute.call_args_list

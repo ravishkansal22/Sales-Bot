@@ -164,6 +164,7 @@ async def classify_intent(
             any(msg_lower.startswith(starter) for starter in question_starters)
             and "discount" not in msg_lower
             and "%" not in msg_lower
+            and "better" not in msg_lower
         )
     ):
         return IntentClassification(
@@ -234,7 +235,8 @@ async def classify_intent(
         "rate",
         "bulk",
         "quantity",
-        "units"
+        "units",
+        "better"
     ]
 
     has_percentage = bool(re.search(r"\d+\s*%", msg_lower))

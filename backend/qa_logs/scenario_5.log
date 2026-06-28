@@ -30,3 +30,17 @@
 [2026-06-21 22:48:33] RESULT: PASSED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}
 [2026-06-21 22:50:16] Starting Scenario 5: Groq disabled -> failover to Ollama.
 [2026-06-21 22:50:17] RESULT: PASSED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}
+[2026-06-27 23:53:36] Starting Scenario 5: Groq disabled -> failover to Ollama.
+[2026-06-27 23:53:36] RESULT: FAILED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}
+[2026-06-27 23:54:04] Starting Scenario 5: Groq disabled -> failover to Ollama.
+[2026-06-27 23:54:05] RESULT: FAILED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}
+[2026-06-27 23:54:15] Starting Scenario 5: Groq disabled -> failover to Ollama.
+[2026-06-27 23:54:15] RESULT: FAILED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}
+[2026-06-27 23:54:53] Starting Scenario 5: Groq disabled -> failover to Ollama.
+[2026-06-27 23:54:54] RESULT: FAILED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}
+[2026-06-27 23:55:17] Starting Scenario 5: Groq disabled -> failover to Ollama.
+[2026-06-27 23:55:18] RESULT: FAILED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}
+[2026-06-27 23:55:29] Starting Scenario 5: Groq disabled -> failover to Ollama.
+[2026-06-27 23:55:30] RESULT: FAILED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}
+[2026-06-27 23:56:13] Starting Scenario 5: Groq disabled -> failover to Ollama.
+[2026-06-27 23:56:13] RESULT: FAILED - {'status_code': 200, 'provider': 'ollama', 'fallback_used': True}

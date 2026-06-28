@@ -314,6 +314,10 @@ async def ingest_products(csv_path: str, limit: int, truncate: bool) -> None:
 
         print(f"Found {len(unique_products)} unique products to insert.")
         
+        # Import dynamic specification generator and DB model
+        from app.models.product_specification import ProductSpecification
+        from app.services.product_intelligence_generator import generate_specs_for_product
+        
         # Batch insert to DB
         products_to_insert = [Product(**p) for p in unique_products.values()]
         
@@ -323,7 +327,24 @@ async def ingest_products(csv_path: str, limit: int, truncate: bool) -> None:
             chunk = products_to_insert[i : i + chunk_size]
             session.add_all(chunk)
             await session.flush()
-            print(f"Inserted chunk {i // chunk_size + 1}: {len(chunk)} items.")
+            
+            # For every product in the chunk, generate dynamic specifications and sales metadata
+            specs_to_insert = []
+            for p in chunk:
+                specs_dict = generate_specs_for_product(p)
+                for s_name, s_val in specs_dict.items():
+                    spec_obj = ProductSpecification(
+                        id=uuid.uuid4(),
+                        product_id=p.id,
+                        specification_name=s_name,
+                        specification_value=s_val
+                    )
+                    specs_to_insert.append(spec_obj)
+            if specs_to_insert:
+                session.add_all(specs_to_insert)
+                await session.flush()
+                
+            print(f"Inserted chunk {i // chunk_size + 1}: {len(chunk)} items with specifications.")
 
         await session.commit()
         print("Product catalog ingestion complete!")

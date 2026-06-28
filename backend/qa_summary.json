@@ -1,6 +1,6 @@
 {
-    "passed": 13,
-    "failed": 0,
+    "passed": 6,
+    "failed": 7,
     "provider_usage": {
         "groq": 2,
         "ollama": 15,
@@ -31,7 +31,7 @@
             "passed": true,
             "details": {
                 "status_code": 200,
-                "answer_extracted": "**[General Knowledge Estimate]** (Confidence: 0.85)\nBased on web results for Alpha Vacuum:\n- **Answer**: Space Gray\n*Disclaimer: This is an estimate based on search results and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?",
+                "answer_extracted": "Regarding the Alpha Vacuum, the color is Space Gray.",
                 "provider": "groq"
             }
         },
@@ -43,7 +43,7 @@
             }
         },
         "scenario_5": {
-            "passed": true,
+            "passed": false,
             "details": {
                 "status_code": 200,
                 "provider": "ollama",
@@ -51,7 +51,7 @@
             }
         },
         "scenario_6": {
-            "passed": true,
+            "passed": false,
             "details": {
                 "status_code": 200,
                 "provider": "deterministic",
@@ -59,11 +59,11 @@
             }
         },
         "scenario_7": {
-            "passed": true,
+            "passed": false,
             "details": {
                 "circuit_tripped": true,
                 "breaker_open_count": 1,
-                "recovered_response": "Groq recovered counteroffer"
+                "recovered_response": "For an order of this size, we have additional flexibility available.\n\nHere are the revised commercial terms I can offer you:\n\u2022 List Price: \u20b91,000\n\u2022 Revised Price: \u20b9850\n\u2022 Total Savings: \u20b9150\n\nAll standard support, quality guarantees, and delivery terms remain fully preserved."
             }
         },
         "scenario_8": {
@@ -83,32 +83,32 @@
             }
         },
         "scenario_10": {
-            "passed": true,
+            "passed": false,
             "details": {
                 "status_code": 200,
-                "response": "**[General Knowledge Estimate]** (Confidence: 0.70)\nBased on general category standards and product knowledge for Alpha Vacuum:\n- **Answer**: Stainless steel\n*Disclaimer: This is an estimate and not verified from the official product specifications catalog.*\n\nIs there anything else you would like to know?"
+                "response": "Regarding the Alpha Vacuum, Products in this category are typically supplied with a sleek black finish to ensure durability and a modern aesthetic suitable for various commercial and residential settings."
             }
         },
         "scenario_11": {
-            "passed": true,
+            "passed": false,
             "details": {
                 "status_code": 200,
                 "provider": "deterministic"
             }
         },
         "scenario_12": {
-            "passed": true,
+            "passed": false,
             "details": {
-                "circuit_tripped": true,
+                "circuit_tripped": false,
                 "groq_attempted_after_trip": false
             }
         },
         "scenario_13": {
-            "passed": true,
+            "passed": false,
             "details": {
                 "search_status": 200,
                 "negotiate_status": 200,
-                "lock_status": 200,
+                "lock_status": 400,
                 "checkout_status": 200
             }
         }
