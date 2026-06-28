@@ -8,3 +8,16 @@ __pycache__/
 *.pyd
 
 metrics.db
+# Python cache files
+*.py[cod]
+
+# SQLite databases
+*.db
+
+# Virtual environments
+.venv/
+venv/
+
+# Python artifacts
+*.pyo
+*.pyd
