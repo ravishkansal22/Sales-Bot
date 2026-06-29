@@ -112,6 +112,7 @@ class BackendStateManager {
       currentPrice: this.activeProduct.price,
       customerDiscountRequest: this.discountRequest,
       currentAiOfferPrice: this.currentAiOffer,
+      quantity: 1, // Demo state manager default quantity is 1
       bundleItems: this.bundleItems,
       status: this.status,
       closeProbability: this.closeProb,

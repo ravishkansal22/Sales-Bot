@@ -52,6 +52,9 @@ export function mapBackendOptimizerResult(winner: any): OptimizerResult {
     // negotiated_quantity is the authoritative backend quantity for this negotiation session.
     // The frontend must sync its quantity state to this value after every loadAllData call.
     negotiatedQuantity: typeof winner.negotiated_quantity === 'number' ? winner.negotiated_quantity : undefined,
+    // allRankings is optional — used only by the read-only Explainability panel.
+    // Never influences negotiation logic or strategy selection.
+    allRankings: Array.isArray(winner.all_rankings) ? winner.all_rankings : undefined,
   };
 }
 

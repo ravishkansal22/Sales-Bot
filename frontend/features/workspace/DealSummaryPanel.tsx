@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import { useNegotiationState } from '../../hooks/useNegotiationState';
-import { FileText, CheckCircle, Trash2, Plus, Minus, Lock, ShoppingCart, RefreshCw, AlertTriangle, ShieldAlert, Info } from 'lucide-react';
+import { FileText, CheckCircle, Trash2, Plus, Minus, Lock, ShoppingCart, RefreshCw, AlertTriangle, ShieldAlert, Info, Brain } from 'lucide-react';
 import { motion } from 'framer-motion';
+import ExplainabilityPanel from './ExplainabilityPanel';
 
 export default function DealSummaryPanel() {
   const { 
@@ -17,10 +18,14 @@ export default function DealSummaryPanel() {
     updateCartQuantity,
     reopenNegotiation,
     finalizePurchase,
-    quantity
+    quantity,
+    twinProfile,
+    optimizerResult
   } = useNegotiationState();
 
-  const [activeTab, setActiveTab] = useState<'summary' | 'cart'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'cart' | 'insight'>('summary');
+
+  const showInsightTab = twinProfile != null || optimizerResult != null;
 
   if (!dealSummary || !activeProduct) {
     return (
@@ -99,11 +104,32 @@ export default function DealSummaryPanel() {
             </span>
           )}
         </button>
+        {/* AI Insight tab — read-only explainability layer */}
+        {showInsightTab && (
+          <button
+            onClick={() => setActiveTab('insight')}
+            className={`flex-1 py-2.5 font-mono text-[9px] uppercase tracking-wider font-bold text-center border-b-2 transition-all relative ${
+              activeTab === 'insight'
+                ? 'border-neon-purple text-neon-purple shadow-[0_4px_10px_-4px_rgba(139,92,246,0.3)]'
+                : 'border-transparent text-white/40 hover:text-white/70'
+            }`}
+          >
+            <span className="flex items-center justify-center space-x-1">
+              <Brain className="h-2.5 w-2.5" />
+              <span>AI Insight</span>
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Main Tab Content */}
       <div className="flex-1 flex flex-col justify-between overflow-hidden">
-        {activeTab === 'summary' ? (
+        {activeTab === 'insight' && showInsightTab ? (
+          /* AI Insight — read-only explainability panel */
+          <div className="flex-1 overflow-y-auto">
+            <ExplainabilityPanel />
+          </div>
+        ) : activeTab === 'summary' ? (
           <div className="flex-1 flex flex-col justify-between overflow-y-auto">
             <div className="space-y-4">
               

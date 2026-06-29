@@ -45,6 +45,12 @@ export interface OptimizerResult {
   currentOfferPrice?: number;
   /** Negotiated quantity sourced from backend NegotiationContext — frontend must sync to this. */
   negotiatedQuantity?: number;
+  /**
+   * Full ranked list of all strategies evaluated by the optimizer.
+   * Optional — used only by the read-only Explainability panel.
+   * Never influences negotiation logic.
+   */
+  allRankings?: Array<{ strategy_name: string; score: number }>;
 }
 
 export interface Message {

@@ -410,6 +410,7 @@ export function NegotiationProvider({ children }: { children: React.ReactNode })
                 currentPrice: activeProd.price,
                 customerDiscountRequest: discountPct,
                 currentAiOfferPrice: unitOffer,
+                quantity: quantity,
                 bundleItems: isInitial ? [] : (winningSim ? (winningSim.concessions || (winningSim.id === 's_bundle' ? ["Premium English Willow Care Kit", "Dynamic Matrix Scale Grip"] : [])) : []),
                 status: "Negotiation Active",
                 closeProbability: isInitial ? 0.9 : (winningSim ? winningSim.closeProbability : 0.88),
