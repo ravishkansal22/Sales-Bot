@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNegotiationState } from '../../hooks/useNegotiationState';
-import { Send, Cpu, User, Sparkles, ShoppingBag, Gift } from 'lucide-react';
+import { Send, Cpu, User, Sparkles, ShoppingBag, Gift, Mic, MicOff, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function ChatInterface() {
@@ -19,6 +19,122 @@ export default function ChatInterface() {
   const [input, setInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Voice Input States & Refs
+  const [voiceState, setVoiceState] = useState<'idle' | 'listening' | 'processing'>('idle');
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [isSupported, setIsSupported] = useState<boolean>(true);
+
+  const recognitionRef = useRef<any>(null);
+  const isListeningRef = useRef<boolean>(false);
+  const initialInputRef = useRef<string>('');
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setIsSupported(false);
+      return;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+
+    rec.onstart = () => {
+      isListeningRef.current = true;
+      setVoiceState('listening');
+      setVoiceError(null);
+    };
+
+    rec.onresult = (event: any) => {
+      setVoiceState('processing');
+      let interimTranscript = '';
+      let finalTranscript = '';
+
+      for (let i = 0; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+
+      const sessionTranscript = finalTranscript + interimTranscript;
+      
+      // Update the input textbox directly and streamingly
+      const prefix = initialInputRef.current;
+      const suffix = sessionTranscript;
+      if (prefix.trim()) {
+        setInput(`${prefix}${prefix.endsWith(' ') ? '' : ' '}${suffix}`);
+      } else {
+        setInput(suffix);
+      }
+    };
+
+    rec.onerror = (event: any) => {
+      isListeningRef.current = false;
+      setVoiceState('idle');
+      initialInputRef.current = '';
+      
+      if (event.error === 'not-allowed') {
+        setVoiceError("Microphone access is required for voice input.");
+      } else if (event.error === 'no-speech') {
+        setVoiceError("No speech detected. Please try again.");
+      } else {
+        setVoiceError("Unable to recognize speech. Please try again.");
+      }
+    };
+
+    rec.onend = () => {
+      isListeningRef.current = false;
+      setVoiceState('idle');
+      initialInputRef.current = '';
+    };
+
+    recognitionRef.current = rec;
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onstart = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          // ignore already stopped error
+        }
+      }
+    };
+  }, []);
+
+  const handleVoiceToggle = () => {
+    if (!isSupported) {
+      setVoiceError("Voice input is not supported in this browser.");
+      return;
+    }
+
+    const rec = recognitionRef.current;
+    if (!rec) return;
+
+    if (isListeningRef.current) {
+      try {
+        rec.stop();
+      } catch (e) {
+        console.error("Failed to stop voice recognition", e);
+      }
+    } else {
+      setVoiceError(null);
+      // Synchronously capture the current input state to act as a prefix for dictation
+      initialInputRef.current = inputRef.current ? inputRef.current.value : '';
+      try {
+        rec.start();
+      } catch (e) {
+        console.error("Failed to start voice recognition", e);
+      }
+    }
+  };
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -340,14 +456,62 @@ export default function ChatInterface() {
         </div>
       </div>
 
+      {/* Voice Input Feedback Area */}
+      {(voiceState !== 'idle' || voiceError) && (
+        <div className="mb-3 px-1 font-mono text-[9.5px] transition-all flex flex-col space-y-1">
+          {voiceState === 'listening' && (
+            <div className="flex items-center space-x-2 text-red-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse"></span>
+              <span>Listening... Speak now.</span>
+            </div>
+          )}
+          {voiceState === 'processing' && (
+            <div className="flex items-center space-x-2 text-cyan-glow">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-glow animate-pulse"></span>
+              <span>Processing speech...</span>
+            </div>
+          )}
+          {voiceError && (
+            <div className="flex items-center space-x-2 text-amber-500 bg-amber-500/5 border border-amber-500/10 rounded px-2 py-1">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              <span>{voiceError}</span>
+              <button 
+                type="button" 
+                onClick={() => setVoiceError(null)} 
+                className="text-white/30 hover:text-white/60 ml-auto underline text-[8px]"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Message Input Panel */}
       <form onSubmit={handleSubmit} className="flex space-x-3 items-center shrink-0">
+        {isSupported && (
+          <button
+            type="button"
+            onClick={handleVoiceToggle}
+            disabled={isTyping}
+            className={`h-9 w-9 rounded-lg border flex items-center justify-center transition-all ${
+              voiceState === 'listening'
+                ? 'border-red-500 bg-red-500/10 text-red-500 animate-pulse'
+                : voiceState === 'processing'
+                ? 'border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow animate-pulse'
+                : 'border-white/10 bg-black/40 text-white/60 hover:text-white hover:border-white/20'
+            }`}
+            title={voiceState === 'listening' ? 'Stop Listening' : 'Start Voice Input'}
+          >
+            {voiceState === 'listening' ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </button>
+        )}
         <input
           ref={inputRef}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={isTyping ? "AI is processing simulations..." : "Discuss pricing concessions or bundle terms..."}
+          placeholder={isTyping ? "AI is processing simulations..." : (voiceState === 'listening' ? "Speak to dictate your message..." : "Discuss pricing concessions or bundle terms...")}
           disabled={isTyping}
           className="flex-1 bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-glow/50 focus:shadow-[0_0_10px_rgba(0,242,254,0.05)] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         />
